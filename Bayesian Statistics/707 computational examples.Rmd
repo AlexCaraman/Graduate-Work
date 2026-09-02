@@ -1,0 +1,1023 @@
+---
+title: "707 Computational Examples"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+# Load Libraries
+```{r}
+library(rstan)
+library(R2jags)
+library("bayesplot")
+library("ggplot2")
+library(loo)
+library(cubature)
+```
+# 1
+## Stan Code
+```{r}
+p1norm <- 'data {int y;}
+parameters {real theta;}
+model {
+  y ~ normal(theta, 1);
+  theta ~ normal(0, 10);}' # sampling function takes sigma, not sigma^2
+
+p1cauch <- 'data {int y;}
+parameters {real theta;}
+model {
+  y ~ normal(theta, 1);
+  theta ~ cauchy(0, 1);}' 
+
+p1stud <- 'data {int y;}
+parameters {real theta;}
+model {
+  y ~ normal(theta, 1);
+  theta ~ student_t(5,0,sqrt(5/3));}' # mu = 0 for v>1, sd = sqrt(v/(v-2)) for v>2
+```
+## Normal Prior
+```{r}
+p1norm.model <- stan_model(model_code=p1norm,model_name='Normal-Normal')
+p1norm.draws <- sampling(p1norm.model,data = list(y = 10),
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 500)
+```
+### Display Results
+```{r}
+print(p1norm.draws)
+p1norm.ex <- extract(p1norm.draws)
+hist(p1norm.ex$theta,main='Normal-Normal Histogram',prob=TRUE)
+lines(density(p1norm.ex$theta))
+# High variance of prior leads to data dominating the prior, posterior mean is very close to observed data y=10
+```
+## Cauchy Prior
+```{r}
+p1cauch.model <- stan_model(model_code=p1cauch,model_name='Normal-Cauchy')
+p1cauch.draws <- sampling(p1cauch.model,data = list(y = 10),
+  chains = 2,cores = 2,iter = 10000,warmup = 5000, seed = 500)
+```
+### Display Results
+```{r}
+print(p1cauch.draws)
+p1cauch.ex <- extract(p1cauch.draws)
+hist(p1cauch.ex$theta,main='Normal-Cauchy Histogram',prob=TRUE)
+lines(density(p1cauch.ex$theta))
+```
+## Student's T Prior
+```{r}
+p1stud.model <- stan_model(model_code=p1stud,model_name='Normal-Students')
+p1stud.draws <- sampling(p1stud.model,data = list(y = 10),
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 500)
+```
+### Display Results
+```{r}
+print(p1stud.draws)
+p1stud.ex <- extract(p1stud.draws)
+hist(p1stud.ex$theta,main='Normal-Students Histogram',prob=TRUE)
+lines(density(p1stud.ex$theta))
+```
+
+# 2 From Homework 1
+# 3
+## Data / Stan Code / Model
+```{r}
+set.seed(1726)
+baseball_data <- read.csv("C:/Users/jacma/Downloads/baseball.csv")
+early70 <- baseball_data$hat.P
+careerBA <- baseball_data$x1
+careerAB <- baseball_data$x2
+realBA <- baseball_data$P
+M <- length(early70)
+avgBA <- sum(early70)/M
+var <- avgBA*(1-avgBA)/45
+
+p3code <- '
+  data {
+    int<lower=0> m;
+    array[m] real<lower=0,upper=1> early70; 
+    real<lower=0> D;
+    matrix[m,3] xi; 
+    }
+  parameters {
+    array[m] real<lower=0,upper=1> actualBA;
+    real beta;
+    real<lower=0> alpha;
+    }
+  model {
+    for (i in 1:m){  
+      early70[i] ~ normal(actualBA[i],sqrt(D));
+      actualBA[i] ~ normal(xi[i,]*beta,sqrt(alpha)); 
+      }
+    beta ~ uniform(0,1); 
+    alpha ~ inv_gamma(10,10); 
+    }'
+```
+
+## a) For each player, compute the posterior mean and standard deviation.
+***WARNING CONCERN***
+```{r}
+aux <- data.frame(1,baseball_data[,3],baseball_data[,4])
+# ^ this is a matrix with 18 rows, 3 columns, that will be parsed for each player to incorporate the effect of the auxiliary variables
+ex3.model <- stan_model(model_code=p3code,model_name='ex3')
+ex3.draws <- sampling(ex3.model,
+  data = list(m=M,early70=baseball_data[,2],xi=aux,D=var), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+print(ex3.draws)
+```
+## b) Using results in part a), obtain box plots of estimation errors 
+$\hat{\theta_i}^{HB}- \theta_i$ and $\hat{\theta_i}- \theta_i$ in the same plot.
+```{r}
+post_means1 <- get_posterior_mean(ex3.draws)[1:18,3]
+prediction_errs <- post_means1 - realBA
+real_diff <- early70 - realBA
+boxplot(prediction_errs,real_diff,ylab='Midseason      Model Predictions',
+        xlab='Error',horizontal=T)
+```
+## c) Obtain the 95% credible intervals of true batting averages for all of the 18 players.
+```{r}
+# see part a), look at 2.5% and 97.5% columns 
+```
+
+# 4 *Models 6 and 7 are overestimating
+For each of the following models, compute the summary measures ASD, ARSD, AAD, and ARAD, along with the error and relative error for each player. 
+## **heavier tails might be better at capturing difference in player quality 
+## (Clemente is not a <.270 hitter) 
+### *** the priors are absolutely dominating the data in these models. I want it to distinguish between good players. don't want the expected result to bring them THAT close together. I could spend all day trying to fine tune this
+## Summary Measures Function *take in the draws get_posterior_mean(DRAWS)[1:18,3]? 
+```{r}
+summary_measures <- function(Model,prediction,actualBA,n=M){
+  ASD <- sum((prediction-actualBA)^2)/n
+  ARSD <- sum((prediction-actualBA)^2/actualBA^2)/n
+  AAD <- sum(abs(prediction-actualBA))/n
+  ARAD <- sum(abs(prediction-actualBA)/actualBA)/n
+  all_measures <- data.frame(Model,ASD,ARSD,AAD,ARAD)
+  return(all_measures)
+}
+
+individual_errors <- function(prediction, actualBA){
+  error <- prediction - actualBA
+  relative_error <- (prediction-actualBA)/actualBA
+  indie_errors <- data.frame(error,relative_error)
+  return(indie_errors)
+}
+model0 <- summary_measures('Model 0 - Normal Approx to Binomial', post_means1,realBA,M)
+#print(model0)
+# print(individual_errors(post_means1,realBA))
+```
+## Model 1 Binomial-Beta Informative/Non-Informative
+```{r}
+# non-informative, uniform prior
+m41codea <- '
+  data {
+    int<lower=0> n;
+    int<lower=0> m;
+    array[m] int<lower=0,upper=n> earlyhits;
+    }
+  parameters {
+    array[m] real<lower=0,upper=1> actualBA;
+    }
+  model {
+    for (i in 1:m){
+      earlyhits[i] ~ binomial(n,actualBA[i]);
+      actualBA[i] ~ uniform(0,1);
+      }
+    }'
+# informative prior, beta(40,120) seems to be reasonable distribution of batting averages, large parameter values to make tails thinner
+# hist(rbeta(10000,40,120))
+m41codeb <- '
+  data {
+    int<lower=0> n;
+    int<lower=0> m;
+    array[m] int<lower=0,upper=n> earlyhits;
+    }
+  parameters {
+    array[m] real<lower=0,upper=1> actualBA;
+    }
+  model {
+    for (i in 1:m){
+      earlyhits[i] ~ binomial(n,actualBA[i]);
+      actualBA[i] ~ beta(40,120);
+      }
+    }'
+# Jeffrey's prior is probably not reasonable because the majority of batting averages would not be near 0 or 1, which is the form of that prior (Beta(0.5,0.5)))
+```
+### Sampling and Display of Results
+```{r}
+earlyHits <- round(early70*45)
+ex41.modela <- stan_model(model_code=m41codea,model_name='ex41a')
+ex41.drawsa <- sampling(ex41.modela,
+  data = list(n=45,m=M,earlyhits=earlyHits), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+ex41.modelb <- stan_model(model_code=m41codeb,model_name='ex41b')
+ex41.drawsb <- sampling(ex41.modelb,
+  data = list(n=45,m=M,earlyhits=earlyHits), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+# print(ex41.drawsa)
+post_means2 <- get_posterior_mean(ex41.drawsa)[1:18,3]
+prediction_errs2 <- post_means2 - realBA
+model41a <- summary_measures('Model 1a - Binomial w/ Uniform Prior', post_means2,realBA,M)
+
+# print(ex41.drawsb)
+post_means3 <- get_posterior_mean(ex41.drawsb)[1:18,3]
+prediction_errs3 <- post_means3 - realBA
+model41b <- summary_measures('Model 1b - Binomial w/ Informative Beta Prior',
+                             post_means3,realBA,M)
+model1.summary <- rbind(model41a,model41b)
+
+model41aI <- individual_errors(post_means2,realBA)
+model41bI <- individual_errors(post_means3,realBA)
+model1.summary
+```
+
+## Model 2 Binomial-Beta with Provided Priors
+```{r}
+m42codea <- '
+  data {
+    int<lower=0> n;
+    int<lower=0> m;
+    array[m] int<lower=0,upper=n> earlyhits;
+    }
+  parameters {
+    array[m] real<lower=0,upper=1> actualBA;
+    }
+  model {
+    for (i in 1:m){
+      earlyhits[i] ~ binomial(n,actualBA[i]);
+      actualBA[i] ~ beta(1,1);
+      }
+    }'
+m42codeb <- '
+  data {
+    int<lower=0> n;
+    int<lower=0> m;
+    array[m] int<lower=0,upper=n> earlyhits;
+    }
+  parameters {
+    array[m] real<lower=0,upper=1> actualBA;
+    }
+  model {
+    for (i in 1:m){
+      earlyhits[i] ~ binomial(n,actualBA[i]);
+      actualBA[i] ~ beta(sqrt(n/4),sqrt(n/4));
+      }
+    }'
+```
+### Sampling and Display of Results
+```{r}
+ex42.modela <- stan_model(model_code=m42codea,model_name='ex42a')
+ex42.drawsa <- sampling(ex42.modela,
+  data = list(n=45,m=M,earlyhits=earlyHits), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+ex42.modelb <- stan_model(model_code=m42codeb,model_name='ex42b')
+ex42.drawsb <- sampling(ex42.modelb,
+  data = list(n=45,m=M,earlyhits=earlyHits), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+post_means4 <- get_posterior_mean(ex42.drawsa)[1:18,3]
+prediction_errs4 <- post_means4 - realBA
+model42a <- summary_measures('Model 2a - Binomial w/ Uniform Prior', post_means4,realBA,M)
+
+post_means5 <- get_posterior_mean(ex42.drawsb)[1:18,3]
+prediction_errs5 <- post_means5 - realBA
+model42b <- summary_measures('Model 2b - Binomial w/ Beta(sqrt(n/4) Prior',
+                             post_means5,realBA,M)
+
+model2.summary <- rbind(model42a,model42b)
+
+model41aI <- individual_errors(post_means2,realBA)
+model41bI <- individual_errors(post_means3,realBA)
+```
+
+## Model 3 Binomial-Beta with Hyperpriors
+```{r}
+# I think higher values for the Beta parameters give a more desirable / "accurate" kernel on batting average, so Gamma hyperpriors also have large parameter values
+m43code <- '
+  data {
+    int<lower=0> n;
+    int<lower=0> m;
+    array[m] int<lower=0,upper=n> earlyhits;
+    }
+  parameters {
+    array[m] real<lower=0,upper=1> actualBA;
+    real<lower=0> alpha;
+    real<lower=0> beta;
+    }
+  model {
+    alpha ~ gamma(50,5);
+    beta ~ gamma(100,1);
+    for (i in 1:m){
+      earlyhits[i] ~ binomial(n,actualBA[i]);
+      actualBA[i] ~ beta(alpha,beta);
+      }
+    }'
+```
+### Sampling and Display of Results
+```{r}
+ex43.model <- stan_model(model_code=m43code,model_name='ex43')
+ex43.draws <- sampling(ex43.model,
+  data = list(n=45,m=M,earlyhits=earlyHits), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+# print(ex43.draws)
+post_means6 <- get_posterior_mean(ex43.draws)[1:18,3]
+prediction_errs6 <- post_means6 - realBA
+model3.summary <- summary_measures(
+  'Model 3 - Binomial with Beta Prior, Gamma Hyperprior',post_means6,realBA,M)
+```
+
+
+## Model 4 Synthetic Model with arcsine Transformation
+$Y_i=\sqrt{n}arcsin(2\hat{\theta_i}-1)$
+$\eta_i=\sqrt{n}arcsin(2\hat{\theta_i}-1)$
+$\hat{\theta_i}=\frac{1}{2}sin(\frac{Y_i}{\sqrt{n}}+1)$
+```{r}
+# non-informative, uniform prior
+m44codea <- '
+  data {
+    int<lower=0> m;
+    int<lower=0> n;
+    array[m] real yi;
+    }
+  parameters {
+    array[m] real<lower=-sqrt(n),upper=sqrt(n)> eta;
+    real<lower=0> sigma;
+    }
+  model {
+    for (i in 1:m){
+      yi[i] ~ normal(eta[i],sigma);
+      eta[i] ~ uniform(-sqrt(n),sqrt(n));
+      }
+    sigma ~ inv_gamma(10,10);
+    }'
+# .250 BA leads to yi of -3.5 --> mean..?
+m44codeb <- '
+  data {
+    int<lower=0> m;
+    int<lower=0> n;
+    array[m] real yi;
+    }
+  parameters {
+    array[m] real<lower=-sqrt(n),upper=sqrt(n)> eta;
+    real<lower=0> sigma;
+    }
+  model {
+    for (i in 1:m){
+      yi[i] ~ normal(eta[i],sigma);
+      eta[i] ~ normal(-3.5,0.5);
+      }
+    sigma ~ inv_gamma(100,100);
+    }'
+```
+```{r}
+transformed <- sqrt(45)*asin(2*baseball_data[,2]-1) # arcsin transformations
+ex44.modela <- stan_model(model_code=m44codea,model_name='ex44a')
+ex44.drawsa <- sampling(ex44.modela,
+  data = list(m=M,yi=transformed,n=45), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+ex44.modelb <- stan_model(model_code=m44codeb,model_name='ex44b')
+ex44.drawsb <- sampling(ex44.modelb,
+  data = list(m=M,yi=transformed,n=45), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+# print(ex44.drawsa)
+fittedyi <- get_posterior_mean(ex44.drawsa)[1:18,3]
+m44fit <- 1/2*sin(fittedyi/sqrt(45)+1) # convert back to proportion
+model44a <- summary_measures('Model 4a - Synthetic Model with Noninformative Prior', 
+                             m44fit, realBA)
+
+fittedyi2 <- get_posterior_mean(ex44.drawsb)[1:18,3]
+m44fit2 <- 1/2*sin(fittedyi2/sqrt(45)+1) # convert back to proportion
+model44b <- summary_measures('Model 4b - Synthetic Model with Informative Prior', 
+                             m44fit2, realBA)
+model4.summary <- rbind(model44a,model44b)
+```
+
+## Model 5 Regression Model
+### Noninformative Priors 
+```{r}
+m45codea <- '
+  data {
+    int<lower=0> m;
+    int<lower=0> n;
+    array[m] real yi;
+    array[m] real career;
+  }
+  parameters{
+    real beta0;
+    real beta1;
+    real<lower=0> sigma;
+  }
+  transformed parameters{
+    array[m] real thetai;
+    for (i in 1:m) {thetai[i] = beta0 + beta1*career[i];}
+  }
+  model{
+    beta0 ~ normal(0,100);
+    beta1 ~ normal(0,100);
+    for (i in 1:m){
+      yi[i] ~ normal(thetai[i],sigma);
+    }
+  }
+  '
+```
+```{r}
+ex45.modela <- stan_model(model_code=m45codea,model_name='ex45a')
+ex45.drawsa <- sampling(ex45.modela,
+  data = list(yi=transformed,m=M,career=careerBA,n=45), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+# print(ex45.drawsa)
+post_meansreg <- get_posterior_mean(ex45.drawsa)[4:21,3]
+m45fit <- 1/2*sin(post_meansreg/sqrt(45)+1) # convert back to proportion
+model45a <- summary_measures('Model 5a - Regression with Noninformative Priors',
+                             m45fit,realBA,M)
+```
+### Informative Priors 
+```{r}
+# mean batting average, i.e. intercept, is informative Bayes
+# slope according to early batting average would in theory be strictly positive, gamma, theta must remain between 0 and 1
+m45codeb <- '
+  data {
+    int<lower=0> m;
+    array[m] real y;
+    array[m] real career;
+  }
+  parameters{
+    real beta0;
+    real beta1;
+    real<lower=0> sigma;
+  }
+  transformed parameters{
+    array[m] real thetai;
+    for (i in 1:m) {thetai[i] = beta0 + beta1*career[i];}
+  }
+  model{
+    beta0 ~ normal(-3.5,5);
+    beta1 ~ normal(0,10);
+    for (i in 1:m){y[i] ~ normal(thetai[i],sigma);}
+  }'
+```
+```{r}
+ex45.modelb <- stan_model(model_code=m45codeb,model_name='ex45b')
+ex45.drawsb <- sampling(ex45.modelb,
+  data = list(y=transformed,m=M,career=careerBA), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+# print(ex45.drawsb)
+post_meansreg2 <- get_posterior_mean(ex45.drawsb)[4:21,3]
+m45fit2 <- 1/2*sin(post_meansreg2/sqrt(45)+1) # convert back to proportion
+model45b <- summary_measures('Model 5b - Regression with Informative Priors',
+                             m45fit2,realBA,M)
+model5.summary <- rbind(model45a,model45b)
+```
+
+## Model 6 Normal-Normal *predictions way too high
+```{r}
+m46codea <- '
+  data {
+    int<lower=0> m;
+    array[m] real y;
+    }
+  parameters {
+    array[m] real<lower=0> theta;
+    real<lower=0,upper=1> mu;
+    real<lower=0> tau;
+  }
+  model {
+    for (i in 1:m){
+      y[i] ~ normal(theta[i],1);
+      theta[i] ~ normal(mu,tau);
+      }
+    mu ~ uniform(0,1);
+    tau ~ uniform(0,100);
+    }'
+m46codeb <- '
+  data {
+    int<lower=0> m;
+    array[m] real y;
+    }
+  parameters {
+    array[m] real<lower=0> theta;
+    real mu;
+    real<lower=0> tau;
+    }
+  model {
+    for (i in 1:m){
+      y[i] ~ normal(theta[i],1);
+      theta[i] ~ normal(mu,tau);
+      }
+    }'
+m46codec <- '
+  data {
+    int<lower=0> m;
+    array[m] real y;
+    }
+  parameters {
+    array[m] real<lower=0> theta;
+    real<lower=0> mu;
+    real<lower=0> tau;
+    }
+  model {
+    for (i in 1:m){
+      y[i] ~ normal(theta[i],1);
+      theta[i] ~ normal(mu,tau);
+      }
+    mu ~ inv_gamma(3,1);
+    tau ~ inv_gamma(3,0.5);
+    }'
+```
+```{r}
+ex46.modela <- stan_model(model_code=m46codea,model_name='ex46a')
+ex46.drawsa <- sampling(ex46.modela,
+  data = list(m=M,y=transformed), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+ex46.modelb <- stan_model(model_code=m46codeb,model_name='ex46b')
+ex46.drawsb <- sampling(ex46.modelb,
+  data = list(m=M,y=transformed), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+ex46.modelc <- stan_model(model_code=m46codec,model_name='ex46c')
+ex46.drawsc <- sampling(ex46.modelc,
+  data = list(m=M,y=transformed), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+# print(ex46.drawsa)
+model6postmeansa <- get_posterior_mean(ex46.drawsa)[1:18,3]
+m46fit <- 1/2*sin(model6postmeansa/sqrt(45)+1) # convert back to proportion
+model46a <- summary_measures('Model 6a - Normal/Normal with Noninformative Priors',
+                             m46fit,realBA,M)
+# print(ex46.drawsb)
+model6postmeansb <- get_posterior_mean(ex46.drawsb)[1:18,3]
+m46fit2 <- 1/2*sin(model6postmeansb/sqrt(45)+1) # convert back to proportion
+model46b <- summary_measures('Model 6b - Normal/Normal with Jeffreys Priors',
+                             m46fit2,realBA,M)
+
+# print(ex46.drawsc)
+model6postmeansc <- get_posterior_mean(ex46.drawsc)[1:18,3]
+m46fit3 <- 1/2*sin(model6postmeansc/sqrt(45)+1) # convert back to proportion
+model46c <- summary_measures('Model 6c - Normal/Normal with Inverse Gamma Priors',
+                             m46fit3,realBA,M)
+model6.summary <- rbind(model46a,model46b,model46c)
+```
+
+## Model 7 *predictions also too high
+```{r}
+m47codea <- '
+  data {
+    int<lower=0> m;
+    array[m] real y;
+    array[m] real<lower=0> career;
+    }
+  parameters {
+    real beta0;
+    real beta1;
+    real<lower=0> tau;
+    array[m] real<lower=0> theta;
+  }
+  transformed parameters{
+    array[m] real eta;
+    for (i in 1:m) {eta[i] = beta0 + beta1*career[i];}
+  }  
+  model {
+    for (i in 1:m){
+      y[i] ~ normal(theta[i],1);
+      theta[i] ~ normal(eta[i],tau);
+      }
+    beta0 ~ uniform(-100,100);
+    beta1 ~ uniform(-100,100);
+    tau ~ inv_gamma(10,10);
+    }'
+m47codeb <- '
+  data {
+    int<lower=0> m;
+    array[m] real y;
+    array[m] real<lower=0> career;
+    }
+  parameters {
+    real beta0;
+    real beta1;
+    real<lower=0> tau;
+    array[m] real<lower=0> theta;
+  }
+  transformed parameters{
+    array[m] real eta;
+    for (i in 1:m) {eta[i] = beta0 + beta1*career[i];}
+  }  
+  model {
+    for (i in 1:m){
+      y[i] ~ normal(theta[i],1);
+      theta[i] ~ normal(eta[i],tau);
+      }
+    }'
+m47codec <- '
+  data {
+    int<lower=0> m;
+    array[m] real y;
+    array[m] real<lower=0> career;
+    }
+  parameters {
+    real beta0;
+    real beta1;
+    real<lower=0> tau;
+    array[m] real<lower=0> theta;
+  }
+  transformed parameters{
+    array[m] real eta;
+    for (i in 1:m) {eta[i] = beta0 + beta1*career[i];}
+  }  
+  model {
+    for (i in 1:m){
+      y[i] ~ normal(theta[i],1);
+      theta[i] ~ normal(eta[i],tau);
+      }
+    beta0 ~ inv_gamma(10,10);
+    beta1 ~ inv_gamma(10,10);
+    tau ~ inv_gamma(10,10);
+    }'
+```
+```{r}
+ex47.modela <- stan_model(model_code=m47codea,model_name='ex47a')
+ex47.drawsa <- sampling(ex47.modela,
+  data = list(m=M,y=transformed,career=careerBA), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+ex47.modelb <- stan_model(model_code=m47codeb,model_name='ex47b')
+ex47.drawsb <- sampling(ex47.modelb,
+  data = list(m=M,y=transformed,career=careerBA), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+```{r}
+ex47.modelc <- stan_model(model_code=m47codec,model_name='ex47c')
+ex47.drawsc <- sampling(ex47.modelc,
+  data = list(m=M,y=transformed,career=careerBA), 
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 567)
+```
+
+```{r}
+m7postmeansa <- get_posterior_mean(ex47.drawsa)[4:21,3]
+m47fit <- 1/2*sin(m7postmeansa/sqrt(45)+1) # convert back to proportion
+model7a <- summary_measures('Model 7a - Normal/Normal Regression with Uniform Priors',
+                            m47fit, realBA)
+m7postmeansb <- get_posterior_mean(ex47.drawsb)[4:21,3]
+m47fit2 <- 1/2*sin(m7postmeansb/sqrt(45)+1) # convert back to proportion
+model7b <- summary_measures('Model 7b - Normal/Normal Regression with Jeffreys Priors',
+                            m47fit2, realBA)
+
+m7postmeansc <- get_posterior_mean(ex47.drawsc)[4:21,3]
+m47fit3 <- 1/2*sin(m7postmeansc/sqrt(45)+1) # convert back to proportion
+model7c <- summary_measures('Model 7c - Normal/Normal Regression with IG Priors',
+                            m47fit3, realBA)
+
+model7.summary <- rbind(model7a,model7b,model7c)
+cbind(m47fit,m47fit2,m47fit3)
+```
+
+## Overall Results
+```{r}
+rbind(model1.summary,model2.summary,model3.summary,model4.summary,
+      model5.summary,model6.summary,model7.summary)
+# posterior_cp <- as.array(ex45.drawsb)
+# np_cp <- nuts_params(ex45.drawsb)
+# color_scheme_set("darkgray")
+# mcmc_parcoord(posterior_cp, np = np_cp)
+```
+### For the top three models, provide detailed analysis. The output should have different diagnostic plots you think are important, plot of some sample density (say, θi for the three players I mentioned earlier),regression coefficients, variance components, posterior means, posterior variances, credible intervals, etc Models 4-7 need to be checked, especiall 5-7 in their implementation
+# 5
+## a)
+```{r}
+library(ggplot2)
+prior1 <- data.frame(value = rbeta(10000,1,1))
+prior2 <- data.frame(value = rbeta(10000,0.5,0.5))
+prior3 <- data.frame(value = rbeta(10000,0,0))
+prior1$prior <- 'Uniform'
+prior2$prior <- 'Jeffreys'
+prior3$prior <- 'Improper'
+prior_dists <- rbind(prior1,prior2,prior3)
+ggplot(data=prior_dists, aes(x=value, fill = prior)) + 
+  geom_density(alpha = 0.2) + 
+  ggtitle('Prior Distributions')
+```
+## b) and c)
+```{r}
+# Binomial Posterior with Beta prior is Beta(alpha + y, beta + n - y)
+N <- 493472
+Y <- 241945
+post1 <- data.frame(value = rbeta(10000,1+Y,1+N-Y)) 
+post2 <- data.frame(value = rbeta(10000,0.5+Y,0.5+N-Y))
+post3 <- data.frame(value = rbeta(10000,0+Y,0+N-Y))
+post1$prior <- 'Uniform'
+post2$prior <- 'Jeffreys'
+post3$prior <- 'Improper'
+posterior_dists <- rbind(post1,post2,post3)
+ggplot(posterior_dists, aes(value, fill = prior)) + 
+  geom_density(alpha = 0.2) + 
+  ggtitle('Posterior Distributions')
+```
+## d) and e)
+```{r}
+post_jeffrey <- rbeta(2000,0.5+Y,0.5+N-Y)
+hist(post_jeffrey)
+lines(density(post_jeffrey))
+# e)
+mean(post_jeffrey) # i. E[theta|y=241945]
+var(post_jeffrey) # ii. V[theta|y=241945]
+pbeta(0.5,0.5+Y,0.5+N-Y,lower.tail=FALSE) # iii. P(theta>0.5|y=241945]
+jeff_cred <- qbeta(c(0.975,.025),0.5+Y,0.5+N-Y,
+                   lower.tail=FALSE) # iv. 95% credible interval
+jeff_cred
+```
+## f)
+```{r}
+p5code <- 'data {int<lower = 0> y;
+                int<lower = 0> n;} 
+    parameters {real theta;}
+    model {y~binomial(n,theta);
+           theta~beta(0.5,0.5);}' 
+p5.model <- stan_model(model_code=p5code,model_name='Jeffrey Beta')
+p5.draws <- sampling(
+  p5.model,
+  data = list(y = Y,n=N),
+  chains = 2,
+  cores = 2,
+  iter = 10000,
+  warmup = 5000,
+  seed = 500
+)
+```
+```{r}
+p5results <- extract(p5.draws)
+pfem <- p5results$theta
+credint <- quantile(pfem,c(0.025,0.975))
+cbind(Mean=mean(pfem),Variance=var(pfem),
+      P=sum(pfem>0.5)/length(pfem),CredLow=credint[1],CredUp=credint[2])
+# The sample size is so large that it is absolutely dominating the prior
+```
+
+# 6 * MISSING EFFECTIVE MODEL SIZE AND DIC
+## a)
+```{r}
+patient <- 1:12
+x6 <- c(102.4,103.2,101.9,103,101.2,100.7,
+      102.5,103.1,102.8,102.3,101.9,101.4) # initial values
+y6 <- c(99.6,100.1,100.2,101.1,99.8,100.3,
+      101,100.1,100.7,101.1,101.3,100.2) # after values
+p6data <- as.data.frame(cbind(patient,x6,y6))
+p6data$z6 <- x6-y6 # difference, or reduction
+ggplot(data=p6data,mapping=aes(x=x6,y=z6))+
+  geom_point()+
+  geom_smooth(method='lm')+
+  xlab('Initial Temperature')+
+  ylab('Temperature Reduction') +
+  ggtitle('Reduction in temperature vs. initial temperature')
+# general increasing trend, linear model may be appropriate. implies higher initial temperatures lead to greater reductions after aspirin is given
+```
+## b) Fit SLR Model 
+$z_i = \beta_0 + \beta_1*(x_i-\bar{x}) + \epsilon_i, \epsilon \sim N(0,\sigma^2)$
+```{r}
+scaledx <- p6data$x6-mean(p6data$x6)
+slr.stan.code <- '
+  data{
+    int<lower = 0> n;
+    array[n] real x;
+    array[n] real z;
+    }
+  parameters{
+    real beta0;
+    real beta1;
+    real<lower=0> tau;
+    }
+  model{
+    for (i in 1:n){
+      z[i] ~ normal(beta0 + beta1*x[i],tau);
+      }
+    }
+  generated quantities{
+    array[n] real log_lik;
+    array[n] real mu;
+    for (i in 1:n){
+      mu[i] = beta0 + beta1*x[i];
+      log_lik[i] = normal_lpdf(z[i]|mu[i],tau);
+      }
+    }'
+ex6.model = stan_model(model_code=slr.stan.code,model_name='ex6')
+ex6.draws = sampling(ex6.model,data = list(n=12,x=scaledx,z=p6data$z6),
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 303)
+```
+### Results, Effective Model Size and DIC
+$\bar{D}=mean(-2*log(P(Y|theta))$
+```{r}
+print(ex6.draws) 
+# 95% credible interval for initial temperature effect: (0.35,1.35), results that match the intuition of the researchers. This indicates that higher initial values lead to a greater reduction in temperature.
+log_lik1 <- extract_log_lik(ex6.draws, merge_chains = FALSE)
+mean(-2*(get_posterior_mean(ex6.draws)[4:15]))
+summary(ex6.draws)
+z6 <- x6-y6
+-2*prod(dlnorm(z6))
+```
+## c) New patient arrives with initial temperature of 100. Draw predictive density of
+$Z_{13}$, predicted reduction in temperature for the patient, and point estimate for $P(Z_{13}>0|Z_{1},...,Z_{13})$, the probability their temperature is reduced
+```{r}
+ex6_predict <- '
+  data{
+    int<lower=0> n;
+    real xNew;
+    array[n] real x;
+    array[n] real z;
+    }
+  parameters{
+    real beta0;
+    real beta1;
+    real<lower=0> tau;
+    }
+  model{
+    for (i in 1:n){
+      z[i] ~ normal(beta0 + beta1*x[i],tau);
+      }
+    }
+  generated quantities{
+    real z13;
+    z13 <- beta0 + beta1*(xNew);
+  }
+'
+ex6pred.model <- stan_model(model_code=ex6_predict,model_name='ex6pred')
+ex6pred.draws <- sampling(ex6pred.model,
+                         data = list(n=12,xNew=100-mean(p6data$x6),x=scaledx,z=p6data$z6),
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 303)
+```
+$z_{new}=1.74+0.86(x_{new}-\bar{x})$
+```{r}
+print(ex6pred.draws)
+prediction.ex <- extract(ex6pred.draws)
+newzedz <- prediction.ex$z13
+ggplot(data.frame(newzedz), aes(x = newzedz)) + 
+  geom_density(fill = "blue", color="black", alpha = 0.2) +
+  ggtitle('Posterior Predictive Density for Xnew=100') +
+  xlab('Znew prediction') +
+  geom_vline(xintercept=0,linetype='dashed',color='red') +
+  annotate('text',x=0.75,y=0.4,label=sum(newzedz>0)/length(newzedz))
+```
+
+## d) Add quadratic term to model
+$\beta_2(x_i-\bar{x})^2$
+```{r}
+slr.stan.code2 <- '
+  data{
+    int<lower = 0> n;
+    array[n] real x;
+    array[n] real z;
+    real xNew;
+    }
+  parameters{
+    real beta0;
+    real beta1;
+    real beta2;
+    real<lower=0> tau;
+    }
+  model{
+    for (i in 1:n){
+      z[i] ~ normal(beta0 + beta1*x[i] + beta2*x[i]^2,tau);
+      }
+    }
+  generated quantities{
+    real z13;
+    z13 <- beta0 + beta1*(xNew);
+    array[n] real log_lik;
+    array[n] real mu;
+    for (i in 1:n){
+      mu[i] = beta0 + beta1*x[i]+beta2*x[i]^2;
+      log_lik[i] = normal_lpdf(z[i]|mu[i],tau);
+      }
+    }
+'
+ex6.model2 <- stan_model(model_code=slr.stan.code2,model_name='ex6b')
+ex6.draws2 <- sampling(ex6.model2,data = list(n=12,x=scaledx,z=p6data$z6,xNew=-2.2),
+  chains = 2,cores = 2,iter = 10000,warmup = 5000,seed = 303)
+```
+### Recheck effective model size and DIC. Apply to new data from part c) as well. 
+```{r}
+print(ex6.draws2)
+# The quadratic term does not appear to be necessary, the 95% credible interval includes zero suggesting it does not have a significant effect on the reduction in temperature. Looking at the data, there does not appear to be much of a curvilinear trend, which supports this result. 
+prediction.ex2 <- extract(ex6.draws2)
+beta2.ex <- prediction.ex2$beta2
+ggplot(data.frame(beta2.ex),aes(x=beta2.ex)) + 
+  geom_density(fill='orange',color='black',alpha=0.2) +
+  ggtitle('Posterior Distribution of Quadratic Parameter') +
+  xlab('beta2') +
+  geom_vline(xintercept=0,linetype='dashed',color='red') +
+  annotate('text',x=-.5,y=0.4,label=sum(beta2.ex<0)/length(beta2.ex))
+
+newzedz2 <- prediction.ex2$z13
+ggplot(data.frame(newzedz), aes(x = newzedz)) + 
+  geom_density(fill = "blue", color="black", alpha = 0.2) +
+  ggtitle('Posterior Predictive Density for Xnew=100 (Quadratic Term)') +
+  xlab('Znew prediction') +
+  geom_vline(xintercept=0,linetype='dashed',color='red') +
+  annotate('text',x=0.75,y=0.4,label=sum(newzedz2>0)/length(newzedz2))
+```
+# 7
+The posterior pdf is given by
+$p(\theta|y)=\frac{\prod_{i=1}^5[1+(\theta-y_i)^2]^{-1}I(\theta>0)}{\int_0^\infty\prod_{i=1}^5[1+(\theta-y_i)^2]^{-1}d\theta}$
+## a) Numerical Integration
+```{r}
+y7 <- c(4,5.5,7.5,4.5,3)
+posterior7 <- function(theta,y) {prod(1/(1+(theta-y)^2))*ifelse(theta>0,1,0)}
+
+integral <- adaptIntegrate(function(theta) posterior7(theta, y7),
+                           lowerLimit = 0,upperLimit = Inf)
+normconst <- integral$integral
+
+post_normed <- function(theta, y) {posterior7(theta, y7) / normconst}
+
+postmeanNI <- adaptIntegrate(function(theta)
+  theta * post_normed(theta, y7), lowerLimit = 0, upperLimit = Inf)$integral
+
+postvarNI <- adaptIntegrate(function(theta)
+  (theta - postmeanNI)^2 * post_normed(theta, y7),
+  lowerLimit = 0,upperLimit = Inf)$integral
+NIresults<- data.frame(Approach='Numerical Integration',
+                       PosteriorMean=postmeanNI,PosteriorVariance=postvarNI)
+```
+## b) Monte Carlo
+```{r}
+thetas <- runif(10000, 0, 100)
+# calculate posterior for each sample
+post_samples <- sapply(thetas, function(theta) posterior7(theta, y7))
+
+# normalize the posterior samples
+post_sampNormed <- post_samples / sum(post_samples)
+
+postmeanMC <- sum(thetas * post_sampNormed)
+postvarMC <- sum((thetas - postmeanMC)^2 * post_sampNormed)
+MCresults<- data.frame(Approach='Monte Carlo',
+                       PosteriorMean=postmeanMC,PosteriorVariance=postvarMC)
+```
+## c) Importance Sampling
+```{r}
+ISthetas <- rnorm(10000,mean(y7),sd(y7))
+imp_weights <- sapply(ISthetas, function(theta) posterior7(theta,y7) / 
+                        dnorm(theta,mean(y7),sd(y7)))
+imp_weights_normalize <- imp_weights / sum(imp_weights)
+postmeanIS <- sum(ISthetas*imp_weights_normalize)
+postvarIS <- sum((ISthetas-postmeanIS)^2*imp_weights_normalize)
+ISresults<- data.frame(Approach='Importance Sampling',
+                       PosteriorMean=postmeanIS,PosteriorVariance=postvarIS)
+```
+## d) Rejection Sampling
+```{r}
+RStheta <- rnorm(10000,mean(y7),sd(y7))
+Paccept <- sapply(RStheta, function(theta) posterior7(theta,y7) /
+                    (50*dnorm(theta,mean(y7),sd(y7)))
+                  )
+acc_samps <- RStheta[runif(10000)<Paccept]
+RSresults<- data.frame(Approach='Rejection Sampling',
+                       PosteriorMean=mean(acc_samps),PosteriorVariance=var(acc_samps))
+```
+## e) Markov Carlo Monte Chain
+```{r}
+m7code <- '
+  data{
+    int<lower=0> n;
+    array[n] real y;
+  }
+  parameters{
+    real theta;
+  }
+  model{
+    for (i in 1:n){
+      y[i]~cauchy(theta,1);
+    }
+  }
+'
+p7model <- stan_model(model_code=m7code,model_name='Problem7 MCMC')
+p7draws <- sampling(p7model, data=list(y=y7,n=5),
+                    chains=2,cores=2,iter=10000,warmup=5000,seed=901)
+```
+```{r}
+MCMCmean <- get_posterior_mean(p7draws)[1,3]
+MCMCvar <- var(extract(p7draws)$theta)
+MCMCresults<- data.frame(Approach='MCMC',
+                       PosteriorMean=MCMCmean,PosteriorVariance=MCMCvar)
+```
+## All results
+```{r}
+rbind(NIresults,MCresults,ISresults,RSresults,MCMCresults)
+```
+
