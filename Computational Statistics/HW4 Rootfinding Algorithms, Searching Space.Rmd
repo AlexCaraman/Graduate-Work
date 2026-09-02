@@ -1,0 +1,517 @@
+---
+title: "Stat 705 HW 4"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+This document is very long because I have tried to go into great detail with 
+discussions and analysis. \
+
+# Problem 2.1 \
+Cauchy PDF: $\frac{1}{s\pi(1+(x-\theta)/s)^2}$ $s=1$ \
+Density: $f(x)=\frac{1}{\pi(1+(x-\theta)^2)}$\
+Likelihood: $L(\theta)=\prod_{i=1}^{n}\frac{1}{\pi(1+(x-\theta)^2)}$\
+Log-likelihood: $l(\theta)=-nlog(\pi)-\sum_{i=1}^{n}log(1+(x-\theta)^2)$\
+Log-likelihood with our data (for visualization purposes):\
+$-20log(\pi) - (log(1+(1.77-\theta)^2)+...+log(1+(43.21-\theta)^2)$
+```{r,warning=FALSE}
+library(ggplot2)
+options(scipen=999)
+
+# From lecture notes
+Gradmat<-function(x, f, eps = 1e-06){
+  # Calculate the difference-quotient approx gradient (matrix) of an arbitrary 
+  # input (vector) function "f" at "x"
+  dd = length(x)
+  aa = length(f(x))
+  epsmat = (diag(dd) * eps)/2
+  gmat = array(0, dim = c(aa, dd))
+  for(i in 1:dd){
+    gmat[, i] <- (f(x + epsmat[, i]) -
+    f(x - epsmat[, i]))/eps}
+  if(aa > 1) gmat else c(gmat)
+}
+
+Newt_Raph_MLE<-function(guess,f, max.iter=25, tol = 1e-05, eps=1e-06){
+  gradient <- function(x) Gradmat(x, f, eps)
+  hessian <- function(x) Gradmat(x, gradient, eps)
+  old <- guess
+  new <- old - solve(hessian(old), gradient(old))
+  it <- 1
+  while(it < max.iter & sqrt(sum((new - old)^2)) >tol){
+    old <- new
+    new <- old - solve(hessian(old), gradient(old))
+    it <- it + 1
+  }
+    list(Steps = it, Initial = guess, Estimate = new,fval = f(new))
+}
+```
+
+## a. Newton-Raphson 
+```{r}
+# observed values
+values <- c(1.77,-0.23,2.76,3.8,3.47,56.75,-1.34,4.24,-2.44,3.29,
+       3.71,-2.4,4.53,-0.07,-1.05,-13.87,-2.53,-1.75,0.27,43.21)
+# Plot Log-likelihood
+theta <- seq(-10,10,by=.1)
+log_likelihood <- function(theta) sum(dcauchy(values, location=theta,scale=1,log=TRUE))
+# analytical first derivative of log likelihood
+log_deriv <- function(theta) 2*sum((values-theta)/(1+(values-theta)^2))
+
+# call above function with theta and observed values
+plot(theta, unlist(lapply(theta, log_likelihood)),
+     xlab='theta',ylab='log-likelihood', main='Log-likelihood of Cauchy(theta,1)')
+```
+
+```{r}
+# the mean is about 5.1
+# -11 and 38 lead to errors, "system is exactly singular" --> very poor guesses
+test_values <- c(-1,0,1.5,4,4.7,7,8,mean(values))
+results_df <- data.frame()
+# test all values via for loop, index functional output to set up columns
+# values updated according to ith row
+for (i in 1:length(test_values)){
+  newt_raph_results <- Newt_Raph_MLE(test_values[i],log_likelihood)
+  results_df[i,1] <- newt_raph_results[1]
+  results_df[i,2] <- newt_raph_results[2]
+  results_df[i,3] <- newt_raph_results[3]
+  results_df[i,4] <- log_deriv(as.numeric(newt_raph_results[3]))
+}
+results_df
+
+# checking code
+optimize(function(theta) -sum(dcauchy(values, location=theta, log=TRUE)),  c(-100,100)) 
+```
+The widely-varying results were to be expected based on the range of initial
+guesses. -11 and 38 cause an error and were thus excluded from the code, which
+suggests these initial values take a bad initial step and quickly diverge. The 
+specific error is "system is exactly singular".\
+The most common estimate among these guesses was -0.1922866, which matches the
+result from the optimize() function. There are clearly a number of local maxima
+for the objective function, which leads to several possible results for the 
+estimate of $\theta$. The mean proves to be a solid estimate, it converges in 8
+steps. Interestingly, it reaches a unique local maxima. It should also be noted
+that the objective function evaluated at estimate of -0.1922866 gives the 
+closest values to 0. Initial guesses closer to the actual maxima converge in
+less steps, which is why values 7, 8, and even the mean, converge to a different
+optimum. \
+
+## b. Bisection Method
+```{r}
+bisect <- function(bounds,fun,eps=1e-05,max.iter=50){
+  # bounds should be a vector, done this way to facilitate testing
+  # fun is the function to optimize
+  lower <- bounds[1]
+  upper <- bounds[2]
+  initial_up <- upper
+  initial_low <- lower
+  theta_guess <- (upper+lower) / 2
+  it <- 1
+  while (it < max.iter & abs(fun(theta_guess))> eps) {
+    # bisection algorithm 
+    if (fun(lower)*fun(theta_guess)<=0){upper <- theta_guess}
+    else{lower<-theta_guess}
+    theta_guess <- (upper + lower) / 2
+    it <- it + 1
+  }  
+  list(Estimate=as.numeric(theta_guess), Steps=it, InitialLow=initial_low,InitialUp=initial_up)
+}
+bisection_test <- list(c(-1,1),c(0,2),c(-4,4),c(-40,40),c(1,1.2))
+sapply(bisection_test,bisect,fun=log_deriv)
+```
+Overall, the bisection method takes much more steps than the Newton-Raphson 
+algorithm (provided the latter has a solid initial guess). Of course, the wider 
+the interval, the more steps we expect the algorithm to take. On the other hand,
+a bad narrow interval (as demonstrated in the fifth row) can also lead to poor
+performance. The estimates of -0.192 and 1.713 here match those obtained via 
+Newton-Raphson. \
+
+## c. Fixed-point iteration
+```{r}
+vectorized_loglike <- Vectorize(log_likelihood,'theta')
+
+fixed_point <- function(guess, f, alpha=1, max.iter=25, eps=1e-05){
+  # new theta is simply G(x) evaluated at old theta
+  # If G(x)=g'(x)+x ---> |g''(x)+1|<1
+  # G(x) = alpha*g'(x) + x
+  # choose alpha so that |alpha*g''(x)+1|<1 on [a,b] 
+  xi <- guess
+  i <- 0
+  gradient <- function(guess){return(Gradmat(guess,f,eps))}
+  hessian <- function(guess) Gradmat(guess,gradient,eps)
+  while (i < max.iter & abs(1+alpha*hessian(xi)) < 1){
+    xi <- xi + alpha*gradient(xi)
+    i <- i+1
+  }  
+  list(Initial=guess,Alpha=alpha,Estimate=xi,Steps=i)
+}
+alphas <- c(1,0.64,0.25,0.01)
+guess1 <- sapply(alphas,fixed_point,guess=-1,f=vectorized_loglike)
+guess2 <- sapply(alphas,fixed_point,guess=0,f=vectorized_loglike)
+guess3 <- sapply(alphas,fixed_point,guess=4,f=vectorized_loglike)
+cbind(guess1,guess2,guess3)
+```
+The choice of alpha is very important, it appears that alpha of 0.25 is the most
+appropriate choice as it converges to the solution of -.1922866 as obtained by
+previous methods. The maximum number of steps is being reached in arriving at 
+this solution, regardless of the initial guess (at least for -1 and 0). Much
+more analysis, including varied initial guesses and perhaps a range of alphas,
+can be done to ascertain the performance of the fixed point method.\
+
+## d. Secant Method
+```{r}
+secant <- function(initial, f, max.iter=500, tol=1e-05){
+  theta_0 <- as.numeric(initial[1])
+  theta_1 <- as.numeric(initial[2])
+  for (i in 1:max.iter){
+    theta_2 <- theta_1 - f(theta_1) / ((f(theta_1)-f(theta_0)) / (theta_1-theta_0)) 
+    if (abs(theta_2-theta_1) < tol) {
+      return(list(Estimate=theta_2,Func_Val=log_deriv(theta_2),Initial_1=initial[1],Initial_2=initial[2]))}
+    theta_0 <- theta_1
+    theta_1 <- theta_2
+  }
+}
+secant_test <- list(c(-2,1),c(-3,3),c(-2,0),c(-2,0.9),c(-10,0))
+secant_test_results <- sapply(secant_test,secant,f=log_deriv)
+data.frame(secant_test_results)
+
+l_prime_theta <- data.frame(theta, likelihood=unlist(lapply(theta, log_deriv)))
+ggplot(l_prime_theta)+
+  geom_point(mapping=aes(x=theta,y=likelihood)) +
+  geom_abline(intercept = 6, slope = -.1,color='red') +
+  geom_hline(yintercept=0)+
+  labs(title='1st Derivative of Log-likelihood Cauchy(theta,1)',y='log-likelihood')
+```
+The secant method is particularly relevant when the derivative of the objective
+function is exceedingly difficult or impossible to calculate analytically.\
+The results again indicate that a good initial guess is crucial. I tested the
+function with initial theta1 = 40 and that gave an extremely large number. 
+(-3,3) appears to be a worse initial guess than (-2,1) because its resultant
+functional value is further from 0. (-10,0) was the worst initial guess given 
+500 iterations of the algorithm. This algorithm, namely initial guess (-3,3), 
+revealed yet another local maxima at 2.8, further demonstrating the complexity 
+of the objective function. \
+The secant method can cause some problems because we could have a denominator 
+very near or equal to zero, the latter leading to an undefined result. Further,
+by looking at the plot we can see that there are several places on the objective
+function where the the functional value is the same. If the secant method were
+to at any point have an interval with *both corresponding theta values*, the
+update method would be 0, and the resultant secant line would not have a root,
+causing the algorithm to diverge. Even if the values are not exactly equal but
+are close, i.e we take theta_1 = -5 and theta_2 = -2, the resultant secant line
+has a root but is very far away from the objective, indicating divergence. The
+red line (ideally) demonstrates this point, as its root is at x=60, already
+diverging significantly from the main area of interest. This would cause the 
+interval to get wider rather than shorter, which is the opposite of our goal. \
+The "mountainous" shape of the derivative is inherently tricky for the secant 
+method to navigate, as it can very easily fall into one of these sorts of 
+"traps" and diverge from the solution.
+
+## e.
+```{r}
+num_experiments <- 100
+newt_times <- rep(0,num_experiments)
+bis_times <- rep(0,num_experiments)
+fixedp_times <- rep(0,num_experiments)
+sec_times <- rep(0,num_experiments)
+for (i in 1:num_experiments){
+  newt_start <- Sys.time()
+  nr_call <- Newt_Raph_MLE(0,vectorized_loglike)
+  newt_times[i] <- Sys.time() - newt_start
+
+  bis_start <- Sys.time()
+  bisection_call <- bisect(c(-1,1),log_deriv)
+  bis_times[i] <- Sys.time() - bis_start
+
+  fixedp_start <- Sys.time()
+  fixedp_call <- fixed_point(-1,vectorized_loglike,alpha=64)
+  fixedp_times[i] <- Sys.time() - fixedp_start
+
+  sec_start <- Sys.time()
+  secant_call <- secant(c(-2,0),log_deriv)
+  sec_times[i] <- Sys.time() - sec_start
+}
+newt_mean <- mean(newt_times)
+bis_mean <- mean(bis_times)
+fixedp_mean <- mean(fixedp_times)
+sec_mean <- mean(sec_times)
+cauchy_time <- data.frame(NR_Avg=newt_mean,Bisection_Avg=bis_mean,
+                          Fixed_Point_Avg=fixedp_mean,Secant_Avg=sec_mean)
+```
+Repeat experiment with $N(\theta,1)$\
+```{r}
+# I re-wrote this function because the original was pretty hard-coded
+Newt_Raph_Norm_MLE <- function(ini_guess, x, max_iter=25, tol=1e-05){
+  # ini_guess = initial guess 
+  # x = vector of observed values
+  old_guess <- ini_guess
+  new_guess <- old_guess + sum(x-old_guess)/length(x)
+  iter <- 1
+  while (iter<max_iter & sqrt((old_guess-new_guess)^2)>tol){
+    old_guess <- new_guess
+    new_guess <- old_guess + sum(x-old_guess)/length(x)
+    iter <- iter + 1
+  }
+  list(Initial=ini_guess,Steps=iter,Estimate=new_guess)
+}
+norm_values <- rnorm(20,-.1922,1)
+normal_first_deriv <- function(theta) sum(norm_values-theta)
+normtimes1 <- rep(0,length(num_experiments))
+normtimes2 <- rep(0,length(num_experiments))
+normtimes3 <- rep(0,length(num_experiments))
+normtimes4 <- rep(0,length(num_experiments))
+for (i in 1:num_experiments){
+  start1 <- Sys.time()
+  Newt_Raph_Norm_MLE(4,norm_values)
+  normtimes1[i] <- Sys.time() - start1
+  
+  start2 <- Sys.time()
+  bisect(c(0,6),normal_first_deriv)
+  normtimes2[i] <- Sys.time() - start2
+  
+  start3 <- Sys.time()
+  fixed_point(5,normal_first_deriv)
+  normtimes3[i] <- Sys.time() - start3
+  
+  start4 <- Sys.time()
+  secant(c(-1,1),normal_first_deriv)
+  normtimes4[i] <- Sys.time() - start1
+}
+norm_newt_mean <- mean(normtimes1)
+norm_bis_mean <- mean(normtimes2)
+norm_fixed_mean <- mean(normtimes3)
+norm_sec_mean <- mean(normtimes4)
+norm_time <- data.frame(NR_Avg=norm_newt_mean,Bisection_Avg=norm_bis_mean,
+                          Fixed_Point_Avg=norm_fixed_mean,Secant_Avg=norm_sec_mean)
+rbind(Cauchy=cauchy_time,Normal=norm_time)
+```
+Newton-Raphson and fixed point both run significantly faster for the Normal 
+density than for Cauchy, but bisection runs at half the speed for Normal, which
+also sees the secant method performing much worse comparitively. Each method 
+seems to have run fairly quickly, but the speed scales with problem complexity, 
+and the run-time will vary depending upon initial value specification. Good 
+initial value specification for the secant method in Cauchy is likely what led
+to its much faster performance.  \
+
+In theory, Newton-Raphson is the fastest provided it is given a solid initial 
+guess (though good initial guesses are necessary for the optimal performance of 
+all methods). This result is confirmed by the above output for Normal, but not
+for Cauchy, for the latter it is the slowest method. NR is the second fastest 
+for Normal, though it is very closely behind fixed point. \
+
+It is notable that Newton-Raphson can easily diverge, where an extreme initial 
+guess can lead to increasingly worse estimates each iteration. This can be seen 
+since guesses -11 and 38 failed to even run for part a). Thus, its stability
+is largely dependent upon the quality of the initial guess but also the quality
+of the derivative approximations (where exact forms are not available).\
+
+Bisection may be the most stable, as it requires very poor initial guesses to 
+not converge, whereas fixed point and secant can diverge easily. That said, our
+specific problem is tricky because the derivative changes signs numerous times 
+(as seen in part d)). This decreases the stability of both bisection and secant.
+Secant operates best when the objective function is "fairly concave" (i.e. 
+several local maxima are okay, but the closer they are together the more 
+probable the secant method is to diverge). Our function has several local maxima
+that are relatively close together, so a combination of theta estimates leading
+to similar functional values causes divergence (again illustrated by d)). This
+happens because the resultant secant line has an x-intercept very far away from
+the region of interest. Despite this, secant performed well for Cauchy, even 
+though the derivative has the aforementioned tricky form. This is only because
+the initial guesses were solid.\
+
+For fixed point, a poor initial estimate can quickly lead to the algorithm 
+spiraling out of control, and it is dependent upon the Lipschitz condition 
+holding. In other words, performance depends on a good formulation of G. \
+
+Note: The obvious estimate for the normal example would be the sample mean (the 
+UMVUE for $\theta$ in this case), I used the most common optimal value obtained 
+by the methods for the Cauchy distribution, as it seemed that is what the 
+problem was suggesting.\
+
+# Problem 2.2\
+Density: $f(x)=\frac{1-cos(x-\theta)}{2\pi}$\
+Likelihood: $L(\theta)=\prod_{i=1}^{n}\frac{1-cos(x_i-\theta)}{2\pi}$\
+Log-Likelihood: $l(\theta)=-nlog(2\pi)+\sum_{i=1}^{n}log(1-cos(x_i-\theta))$\
+Log-Likelihood with our data (for visualization purposes): \
+$l(\theta)=-nlog(2\pi)+log(1-cos(3.91-\theta))+ ... +log(1-cos(2.5-\theta))$\
+Deriving wrt theta, checking assuming one x value\
+$\frac{1}{1-cos(x-\theta)}*sin(x-\theta)*-1=\frac{-sin(x-\theta)}{1-cos(x-\theta)}$\
+First Derivative log-like:$l'(\theta)=\frac{-\sum_{i=1}^{n}sin(x_i-\theta)}{\sum_{i=1}^{n}(1-cos(x_i-\theta))}$\
+
+## a
+```{r,warning=FALSE}
+x <- c(3.91,4.85,2.28,4.06,3.7,4.04,5.46,3.53,2.28,1.96,
+          2.53,3.88,2.22,3.47,4.82,2.46,2.99,2.54,0.52,2.5)
+param_space <- seq(-pi,pi,2*pi/199)
+log_likelihood2 <- function(theta) {-length(x)*log(2*pi)+sum(log(1-cos(x-theta)))}
+# call above function with theta and observed values
+plot(param_space, unlist(lapply(param_space, log_likelihood2)),
+     xlab='theta',ylab='log-likelihood', main='Log-likelihood for Problem 2.2')
+```
+
+## b
+Method of moments estimation
+\begin{equation}
+\begin{split}
+E(x) & =\int_{0}^{2\pi}\frac{x(1-cox(x-\theta))}{2\pi}dx\\
+&=\frac{1}{2\pi}\int_{0}^{2\pi}(x-xcox(x-\theta))dx\\
+&=\frac{1}{2\pi}[\int_{0}^{2\pi}xdx-\int_{0}^{2\pi}xcox(x-\theta))dx]\\
+&=\frac{1}{2\pi}[2\pi^2-\int_{0}^{2\pi}xcox(x-\theta))dx]\\
+&=\frac{1}{2\pi}[2\pi^2-[xsin(x-\theta)+cos(x-\theta)]_0^{2\pi}]\\
+&=\frac{1}{2\pi}[2\pi^2-[2\pi sin(2\pi-\theta)+cos(2\pi-\theta)+cos(0-\theta)]]\\
+&=\frac{1}{2\pi}(2\pi^2-2\pi sin(\theta))\\
+&=\pi+sin\theta\
+\end{split} \end{equation} \
+By WLLN, $\bar{x}\rightarrow E(x)$, substitute and solving for $\theta$, we 
+have estimator $\hat{\theta}=arcsin(\bar{x}-\pi)$
+
+## c
+```{r}
+# include method of moments estimator
+mom_estimator <- asin(mean(x)-pi)
+test_values2 <- c(-2.7,2.7,0,mom_estimator)
+results_df2 <- data.frame()
+# using same method as previously for viewing results
+for (i in 1:length(test_values2)){
+  newt_raph_results2 <- Newt_Raph_MLE(test_values2[i],log_likelihood2)
+  results_df2[i,1] <- newt_raph_results2[1]
+  results_df2[i,2] <- newt_raph_results2[2]
+  results_df2[i,3] <- newt_raph_results2[3]
+}
+results_df2
+```
+
+## d
+```{r}
+results_df3 <- data.frame()
+results_df3 <- t(data.frame(sapply(param_space,Newt_Raph_MLE,f=log_likelihood2)))
+# all results
+head(results_df3,20)
+# simplify estimates by rounding
+raw_estimates <- unlist(results_df3[,3])
+prob2_estimates <- round(raw_estimates,8)
+# extract unique estimates for theta
+unique_estimates <- unique(prob2_estimates)
+# determine where cutoffs for intervals are
+indices<- match(unique_estimates,prob2_estimates)
+# subset initial guesses according to indices
+groups_least_values <- results_df3$Initial[indices]
+
+intervals <- list()
+for (i in 1:length(unique_estimates)){
+  intervals[[i]] <- unlist(subset(results_df3,round(raw_estimates,8)==unique_estimates[i])[,2])
+}
+# 19 groups, first three displayed 
+head(intervals,3)
+```
+When rounding to 8 decimal places, we have 19 unique estimates across the entire
+parameter space. Vector "groups_least_values" contains the "first" value in the 
+initial set to give a different estimate. That is, the entry just before -2.7942
+in the param_space vector would give a different final result. Thus, loose
+intervals could be constructed from this vector, where any given interval is
+defined by the current entry in groups_least_values, up to but not including the
+next entry in groups_least_values. The spacing is determined by $2\pi/199$, 
+which was used to create the parameter space and also the plot in part a). \
+For instance, the first set would be 
+$(-\pi,-3.110019,-3.078445,...,-2.825855)$, which all give an estimate of -3.093
+The next value in the param_space vector gives an estimate of -2.786167, and the
+pattern repeats. Notably, not every set is of the same size.\
+The "intervals" object is a list that contains sets for the initial values that
+lead to unique final estimates. Any initial value in any particular set would
+result in the so-called local modes, which are in turn given by the vector 
+"unique_estimates".
+
+## e
+My thinking for this problem was to use the end values of the intervals found in
+the previous problem. I searched the parameter space near these values by 
+gradually incrementing them by some "eps" > 0, looping until the estimate 
+obtained by the Newton-Raphson method was different. "Different" constitutes the 
+estimates being different when rounded to the 6th decimal place. Further 
+precision can be obtained by decreasing the value of eps or rounding to a later
+decimal place. It is up to the user to decide what defines the estimates being
+"close", hence more insight could be gleaned by less rounding.
+```{r}
+distinct_results <- function(initial_guess,eps=1e-03){
+  # parameters: initial guess, vector of values
+  # eps determines which 10s place to nudge the initial guess by
+  results1 <- Newt_Raph_MLE(initial_guess,log_likelihood2)
+  estimate1 <- round(as.numeric(results1[3]),6)
+  # nudge in positive direction
+  i <- 1
+  nudge <- i*eps
+  guess_nudge <- initial_guess + nudge
+  results2 <- Newt_Raph_MLE(guess_nudge,log_likelihood2)
+  estimate2 <- round(as.numeric(results2[3]),6)
+  # loop until the estimates are different
+  while(estimate1 == estimate2){
+    results1 <- Newt_Raph_MLE(initial_guess,log_likelihood2)
+    estimate1 <- round(as.numeric(results1[3]),6)
+    # increase size of nudge
+    i <- i+1 
+    nudge <- i*eps
+    guess_nudge <- initial_guess + nudge
+    results2 <- Newt_Raph_MLE(guess_nudge,log_likelihood2)
+    estimate2 <- round(as.numeric(results2[3]),6)
+  }
+  initial_val1 <- as.numeric(results1[2])
+  initial_val2 <- as.numeric(results2[2])
+  list(Diff_Between_Initial=abs(initial_val1-initial_val2),
+       Ini_1=initial_val1,Final_1=estimate1,
+       Ini_2 = initial_val2,Final_2=estimate2)
+}
+# Vector of values near threshold, i.e. start with one value, add incrementally
+# until a different final result is obtained
+# If we test every "close" value, we effectively search the entire space for
+# the two values that are closest together but lead to different final estimates
+close_values <- unlist(results_df3[,2][indices-1])
+differences <- t(sapply(close_values,distinct_results))
+differences_mat <- data.frame(differences)
+differences_mat
+```
+Starting values of -2.22593 and -2.222953 have a difference of 0.003 and lead to 
+final guesses of -2.232167 and -1.658283, respectively. These initial starting 
+values should be the two closest that lead to different estimates *without*
+*testing for smaller epsilon.* If we choose a smaller increment, we may discover
+even closer values that go to different end results. However, the computational
+complexity increases exponentially with smaller epsilon. In the interest of time
+I chose a relatively small increment size. 
+
+```{r,include=F}
+# I've included this as an appendix, it was my initial method for solving #1
+# Following was my writing out of the first derivative of the log-likelihood
+Newt_Raph_MLE_orig <- function(ini_guess, max_iter=25, tol=1e-05){
+  # ini_guess = initial guess 
+  # x = vector of observed values
+  old_guess <- as.numeric(ini_guess)
+  new_guess <- old_guess - log_deriv(old_guess)/log_deriv_sec(old_guess)
+  iter <- 1
+  while (iter<max_iter & sqrt((old_guess-new_guess)^2)>tol){
+    old_guess <- as.numeric(new_guess)
+    new_guess <- old_guess - log_deriv(old_guess)/log_deriv_sec(old_guess)
+    iter <- iter + 1
+  }
+  list(Initial=ini_guess,Steps=iter,Estimate=new_guess)
+}
+
+# old functions: log-likelihood written in analytical form, its second derivative
+ll1 <- function(x,theta) -length(x)*log(pi)-sum(log(1+(x-theta)^2)) 
+log_deriv_sec <- function(theta) 2*sum(((values-theta)^2-1)/(1+(values-theta)^2)^2)
+
+# First derivative log-like: $\sum_{i=1}^{n}\frac{-1}{1+(x-\theta)^2}*2(x-\theta)*-1)$
+# $=2\sum_{i=1}^n\frac{x-\theta}{1+(x-\theta)^2}$
+# Second derivative log-like: did not obtain "confidently" 
+
+# 2d old commentary
+# Rounding to 8 decimal places, my code determined there are 43 unique estimates,
+# implying there are 43 groups along the sub-interval. Each entry in the final 
+# vector gives the lowest possible value of each respective interval, their 
+# subsequent values representing the non-included largest possible value for the 
+# interval. Any initial estimates within this interval are expected to give the 
+# same final estimate for $\theta$. For example, any initial estimate between
+# -2.8890023 and -2.6679857 is expected to give a final result of -2.752389.
+# In general, this demonstrates not only the complexity of the objective function,
+# but also that there are *many* local maxima. This is to be expected though, as
+# the density is periodic. It is probably worth mentioning that each initial 
+# estimate leads to a final guess that is very close to it, meaning the algorithm
+# does not move far away from the initial guess at any point.
+```

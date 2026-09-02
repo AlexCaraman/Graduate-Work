@@ -1,0 +1,196 @@
+---
+title: "705 Homework 3"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+# 1
+```{r}
+EucDist <- function(x=0,y=0){
+  # i. Check vectors have same dimensionality
+  if (length(x)==length(y)){return(sqrt(sum((x-y)^2)))}
+  # ii. If mismatched dimensionality
+  else{print('Vectors need to be in the same dimension!')}
+}
+
+EucDist(x=rnorm(3,0,1),y=rnorm(5,0,1))
+N <- 1000
+distance_est <- rep(0,N)
+for (i in 1:N){
+  distance_est[i] <- EucDist(x=rnorm(4,0,5),y=rnorm(4,0,5))
+}
+mean(distance_est)
+```
+I did 1000 replications of the function to come up with a LLN estimate for the
+expected difference.
+
+# 2-3
+```{r warning=FALSE}
+framework <- function(data_object,percent_missing=0.2){
+  # i. Converts any column named ”Month” from NUMERIC into FACTOR type
+  data_object$Month <- as.factor(data_object$Month)
+  
+  # ii. Converts any column named ”Day” from NUMERIC to CHARACTER type
+  data_object$Day <- as.character(data_object$Day)
+
+  # iii. Removes any column with more than 20% missing entries
+  # subset df by negating logical test: 1 if total missing exceeds threshold
+  num_obs <- nrow(data_object)
+  threshold <- num_obs*percent_missing
+  na_indices <- is.na(data_object[1:num_obs,])
+  total_missing <- apply(na_indices,2,sum)
+  data_object <- (data_object[,-(total_missing>threshold)])
+  
+  # iv. Replaces any remaining missing entries in NUMERIC columns with mean 
+  val_columns <- unlist(lapply(data_object, is.numeric), use.names = FALSE) 
+  numerics <- data_object[,val_columns]
+  NA_index <- which(is.na(numerics), arr.ind = TRUE)
+  # colMeans computes means, removing NA. impute mean acc to column place
+  numerics[NA_index] <- colMeans(numerics, na.rm = TRUE)[NA_index[,"col"]]
+  data_object[,val_columns] <- numerics # update original df
+  
+  # v. Produces a matrix called DataSum containing quartiles and mean
+  DataSum <- matrix(apply(numerics,2,summary),ncol=ncol(numerics))
+  
+  
+  # list: adjusted df, Datasum, two-column matrix with coords of imputed values
+  items <- list(data_object,DataSum,NA_index)
+  return(items)
+}
+start <- Sys.time()
+data <- framework(airquality)
+Sys.time() - start
+data
+```
+
+# 4-8 https://r4ds.hadley.nz/data-visualize#exercises
+## Section 1.2.5 exercises
+### 1. How many rows are in penguins? How many columns?
+```{r}
+library(ggplot2)
+library(palmerpenguins)
+data(penguins)
+dim(penguins)
+```
+The dim() function tells us the penguins data frame is 344 rows by 8 columns.
+
+### 3. Scatterplot bill_depth_mm (y) vs. bill_length_mm (x). Describe relationship
+```{r}
+ggplot(data=penguins) + geom_point(mapping=aes(x=bill_length_mm,y=bill_depth_mm))
+```
+The relationship between the variables is somewhat difficult to ascertain with
+the above plot, although there appears to be a *slight* positive relationship 
+between bill length and bill depth. That said, there appear to be two separate 
+groups, in that if we were to add lines of best fit they would both have 
+positive slopes but different intercepts. 
+
+### 4. Scatterplot of species vs. bill_depth_mm? What should geom be?
+```{r}
+ggplot(data=penguins) + geom_point(mapping=aes(x=species,y=bill_depth_mm))
+ggplot(data=penguins) + geom_boxplot(mapping=aes(x=bill_depth_mm,fill=species)) 
+ggplot(data=penguins) + geom_density(aes(x=bill_depth_mm,fill=species),alpha=0.2)
+```
+Scatterplots require the use of geom_point(), the plot groups the penguins by 
+species and plots the bill depth on the y axis, which could be useful to infer
+the spread and location of the variable for each of the species. geom_boxplot
+may be a better choice, as demonstrated above, because it more intuitively shows
+the dispersion of values for each group. geom_density may be even more useful 
+because it allows the user to visualize any overlap in the distributions of the
+variables.
+
+### 5. Why does the following give an error and how would you fix it?
+```{r}
+# ggplot(data = penguins) + geom_point()
+```
+This gives an error because nothing is mapped to the x and y coordinates, so
+geom_point() does not know what to do. The way to fix this would be to add 
+mapping=aes(x= something, y=something_else), with the somethings being variables
+of interest.
+
+### 6. What does na.rm do in geom_point()? Its default value is? Plot when = TRUE
+```{r}
+ggplot(data=penguins) + 
+  geom_point(mapping=aes(x=species,y=bill_depth_mm,color=species),na.rm=TRUE)
+```
+The na.rm parameter simply removes any of the "na" or missing values from the 
+data set and plots the rest. The default value is FALSE, so that a warning is 
+given to the user that the data has some missing values. When the parameter is 
+true, the missing values are still removed but a warning is not given.
+
+### 7. Add caption to previous plot “Data come from the palmerpenguins package.”
+```{r}
+ggplot(data=penguins) + 
+  geom_point(mapping=aes(x=species,y=bill_depth_mm,color=species),na.rm=TRUE) +
+  labs(caption='Data come from the palmerpenguins package.')
+```
+
+### 8. Recreate the following visualization. What aesthetic should bill_depth_mm be mapped to? And should it be mapped at the global level or at the geom level?
+```{r}
+ggplot(data=penguins) + 
+  geom_point(mapping=aes(x=flipper_length_mm,y=body_mass_g,color=bill_depth_mm),na.rm=T) +
+  geom_smooth(mapping=aes(x=flipper_length_mm,y=body_mass_g),na.rm=T)
+```
+bill_depth_mm needs to be mapped to the color aesthetic within geom_point to
+recreate the above figure. It should be mapped at the geom level rather than the
+global level so that the points themselves are actually colored.
+
+## Section 1.4.3 
+### 1. Bar plot of penguin species (species on y). How is this plot different?
+```{r}
+ggplot(data=penguins) + geom_bar(mapping=aes(y=species))
+```
+Assigning species to the y-axis simply flips the plot from what one may expect.
+That is, species with more members in the data set have bars reaching further to
+the right of the plot, rather than further upward. Tt can be seen that the most 
+populous species in the data set is Adelie, and the least populous is Chinstrap.
+
+### 2. How are these two plots different? Which aesthetic is more useful?
+```{r}
+ggplot(penguins, aes(x = species)) +
+  geom_bar(color = "red")
+ggplot(penguins, aes(x = species)) +
+  geom_bar(fill = "red")
+```
+color simply changes the outline  of the bars, whereas fill changes the entire
+bar into a different color. Either may be more useful depending on context, as 
+you may want to outline the bars according to some factor and fill them 
+according to another. Generally, the fill aesthetic seems more useful for 
+actually changing the color of the bars themselves.
+
+### 3. What does the bins argument in geom_histogram() do?
+```{r}
+ggplot(data=penguins) + geom_histogram(mapping=aes(x=bill_depth_mm,fill=species),bins=5,alpha=0.5)
+ggplot(data=penguins) + geom_histogram(mapping=aes(x=bill_depth_mm,fill=species),bins=30,alpha=0.5) 
+```
+Bins effectively determines the number of bars in the histogram. If there are
+10 bins, the data will be sorted into 10 groups, or bins, which corresponds to
+10 bars in the plot. The number of bins does not always correspond to the number
+of bars exactly, but it is a good indicator of how far apart the data must be to
+be grouped separately.
+
+### 4. Make histogram of carat variable. What binwidth is the most interesting?
+```{r,warning=FALSE,message=FALSE}
+library(tidyverse)
+data(diamonds)
+ggplot(data=diamonds) + geom_histogram(mapping=aes(x=carat)) +
+  ggtitle('Carat Histogram with 30 bins (default)')
+ggplot(data=diamonds) + geom_histogram(mapping=aes(x=carat),bins=5) +
+  ggtitle('Carat Histogram with 5 bins')
+ggplot(data=diamonds) + geom_histogram(mapping=aes(x=carat),bins=50) +
+  ggtitle('Carat Histogram with 50 bins')
+ggplot(data=diamonds) + geom_histogram(mapping=aes(x=carat),bins=100) +
+  ggtitle('Carat Histogram with 100 bins')
+ggplot(data=diamonds) + geom_histogram(mapping=aes(x=carat),bins=1000) +
+  ggtitle('Carat Histogram with 1000 bins')
+```
+We can immediately rule out using a very low number of bins (e.g. 5) because
+that makes data inference nearly impossible. Depending upon the level of detail
+desired, the "most interesting" results can be seen with number of bins greater
+than 30. The more bins, the more "spikes" in the data are revealed, which 
+suggests the data is possibly multimodal. The last plot also reveals interesting
+behavior (despite probably being a little *too* fine-detailed), in that there
+are repeated values with high density, followed by a repeated exponential decay
+pattern. For instance, one might see this behavior between carat values 0.5-0.7,
+then again from 0.7 to 0.9. These values are approximate, but this pattern is
+as if multiple $c^{-x+k}, c>0$ with $c,k\in\mathbb{R}^1$ functions are being
+combined side-by-side.

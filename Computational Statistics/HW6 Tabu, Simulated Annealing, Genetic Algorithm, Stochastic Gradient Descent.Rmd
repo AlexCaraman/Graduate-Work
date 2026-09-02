@@ -1,0 +1,411 @@
+---
+title: "Stat 705 HW6"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+I have tried my absolute best with this assignment, I simply ran out of time.
+I believe 3.2 is working correctly, but there are certainly ways of 
+incorporating the aspiration and diversification criterion more completely. 
+For 3.8 Simulated Annealing, the results seem to be working correctly despite
+a strange shape in the plot. This is likely because the initial fit is the one
+given by the data set, while the consecutive iterations with the same WSS is due
+to the same model fit occurring repeatedly. 
+I have no idea how the genetic algorithm is supposed to work with this problem,
+and for the third problem I have spent hours confused by the proper way to 
+update the parameters. The code runs, but does not give logical results. I feel
+if we were given more time I'd have been able to produce much more desirable 
+(and more cleanly coded) results.
+
+# Problem 3.2
+Implement a tabu algorithm for minimizing the AIC for the baseball salary 
+regression problem. Model your algorithm after Example 3.7.
+
+## a., b., and c.
+Compare the effect of using different tabu tenures. \
+Monitor changes in AIC from one move to the next. Define a new attribute that
+signals when the AIC change exceeds some value. Allow this attribute to be 
+included on the tabu list, to promote search diversity. (indicated via comment)\
+Implement aspiration by influence, over-riding the tabu of reversing a low-
+influence move if a high-influence move is made prior to the reversal. Measure 
+influence with changes in $R^2$. (indicated via comment)
+```{r,warning=FALSE,message=FALSE}
+# load libraries, set seed
+library(tidyverse)
+library(readr)
+library(ggplot2)
+set.seed(1726)
+# import data, dataframe set-up
+baseball_dat <- read_table('baseball.dat')
+baseball_dat$freeagent <- as.factor(baseball_dat$freeagent)
+baseball_dat$arbitration <- as.factor(baseball_dat$arbitration)
+
+# THE DIVERSE AND ASPIRE PARAMETERS ARE BOOLEANS, AND CAN BE TURNED ON/OFF TO
+# ALTER WHICH COMPONENTS OF THE ALGORITHM ARE RUN
+tabu_func <- function(tabu_term,data,iter=75,improvement=0.4,diverse=T,aspire=T){
+  predictors <- data[,-1] # REMOVE TARGET VARIABLE
+  log_sal <- log(data$salary)
+
+  n_obs <- length(log_sal) # n 
+  n_predictors <- length(predictors[1,]) # m
+
+  tabu <- rep(0,n_predictors)
+  aic_scores <- rep(0, iter+1) # track AIC values
+  aic_diff <- rep(0,iter+1)
+  
+  better <- NULL
+  r2_values <- NULL
+  # for b.
+  if (diverse){better <- rep(0,iter+1)} 
+  # for c.
+  if (aspire){r2_values <- rep(0,iter+1)}
+
+  run <- rbinom(n_predictors,1,0.5) # 0 or 1, exclude or include predictor in reg
+  run_vars <- predictors[,run==1] # select only variables randomly chosen by binom
+  model <- lm(log_sal~.,run_vars) # fit model with the variables
+  run_aic <- extractAIC(model)[2]
+  best_aic <- run_aic # initialize: first and only run would have the best AIC 
+  aic_scores[1] <- run_aic # update vector of AIC scores
+  if (aspire) {r2_values[1] <- summary(model)$r.squared} 
+
+  for (i in 1:iter){
+    run_aic <- 0
+    # TESTS ALL MODELS IN THE 1-NEIGHBORHOOD, CHOOSES THE BEST MODEL IF IT IS 
+    # NOT TABU, OTHERWISE SELECT LEAST UNFAVORABLE UNLESS THE MODEL IS THE BEST
+    for (j in 1:n_predictors){
+      run_step <- run
+		  run_step[j] <- !run[j]
+		  run_vars <- predictors[,run_step==1]
+		  model <- lm(log_sal~.,run_vars)
+		  run_step_aic <- extractAIC(model)[2]
+		  if(run_step_aic < run_aic && tabu[j]==0){
+		    run_next <- run_step
+		    run_aic <- run_step_aic
+		    pos <- j
+		  }
+	    if(run_step_aic < run_aic && tabu[j]!=0 && run_step_aic < best_aic){
+	      run_next <- run_step
+	      run_aic <- run_step_aic
+	      pos <- j
+	    }
+	    # DECREMENT TABU TERMS
+	    if(tabu[j]!=0){tabu[j]<-tabu[j]-1}
+		    }
+	  tabu[pos] <- tabu_term
+	  run_current <- run_next
+	  if(run_aic < best_aic){
+		  best_aic <- run_aic # save best AIC
+		  run <- run_current
+	  }
+	  aic_scores[i+1] <- run_aic
+	  
+	  # for b: negative -> worse, positive -> better
+	  if (diverse) {aic_diff[i] <- aic_scores[i]-run_aic
+	    # if "significant" improvement, indicate "Large"
+	    if (aic_diff[i] > improvement) {better[i]<-'Large'} 
+	    else {better[i]<-'Small'}
+	  }
+	  # for c:
+	  if (aspire){
+  	  r2_values[i+1] <- summary(model)$r.squared
+	  }
+	} 
+  list(aic_scores,best_aic,tabu_term,aic_diff,better,r2_values)
+}
+test_tenures <- c(1,5,10,12,15,20) # weird with 50, 100, aics not changed from 0
+results <- sapply(test_tenures, tabu_func,data=baseball_dat)
+
+# setting up dataframe for ggplot
+tenure_length <- matrix(sapply(test_tenures,rep,times=76),ncol=1) 
+iter_number <- rep(1:76,length(test_tenures))
+aic_value <- c(unlist(results[1,1]),unlist(results[1,2]),unlist(results[1,3]),
+               unlist(results[1,4]),unlist(results[1,5]),unlist(results[1,6]))
+improvements <- c(unlist(results[5,1]),unlist(results[5,2]),unlist(results[5,3]),
+               unlist(results[5,4]),unlist(results[5,5]),unlist(results[5,6]))
+all_aics <- data.frame(iter_number,tenure_length,aic_value,improvements)
+
+ggplot() + 
+  geom_line(data=all_aics, 
+            mapping=aes(x=iter_number, y=aic_value,color=as.factor(tenure_length)))+
+  geom_point(data=all_aics[all_aics$improvements=='Large',],
+             mapping=aes(x=iter_number,y=aic_value,color=as.factor(improvements),shape='.'))+
+  ylim(c(-400,-425)) +
+  ggtitle('AIC plot per iteration, grouped by tenure length')
+
+# plot best AICs against tenure length
+plot(test_tenures,unlist(results[2,]),xlab='Tenure Length',ylab='AIC',
+     main='Best AIC versus Tabu Tenure Length')
+results[6,] # R^2 values
+```
+There seems to be some sort of balancing act necessary for the tenure length. If
+the length is too long, the algorithm "breaks" and "explores too much" (the code
+had several AICs of 0 with tenure lengths of 50 and 100, which were excluded), 
+while if the length if too short, it cycles within a single neighborhood of the 
+function.The differences between best AICs do not seem very significant, though.
+We see in the first plot that tenure lengths 1 and 10 are the best, but 10 is 
+able to jump 1. This is likely due to 1 being stuck in a local neighborhood and
+not finding an area of the optimization function which is slightly higher.\
+
+Experimentation revealed that the difference difference between the "best best" 
+and "worst best" AIC scores is no greater than 10 in absolute value, and since 
+the AICs are all in in range of 100s, such a difference is not intuitively 
+large. The difference between AICs of say -418.94 and -418.24 may be noteworthy 
+depending on the specific problem. The level of precision desired is of course a 
+huge factor in this. The second plot shows again that lengths of 1 and 10 are 
+the best, while 20 is clearly too long, and 5, 12, 15 are sub-optimal choices. 
+
+# Problem 3.8
+Thirteen chemical measurements were carried out on each of 178 wines from three
+regions of Italy [53]. These data are available from the website for this book. 
+Implement simulated annealing and the genetic algorithm, partition the wines 
+into three groups for which the total of the within-group sum of squares is 
+minimal. Comment on your work and the results. This is a search problem of size 
+$3^p$ where $p = 178$. If you have access to standard cluster analysis routines, 
+check your results using a standard method like that of Hartigan and Wong [317].
+
+## Simulated Annealing
+```{r,message=FALSE}
+wine_data <- read_table('wine.dat')
+
+
+# computes total within sum of square errors
+compute_wss <- function(data){
+  region1 <- subset(data,data[,1]==1)
+  errs1 <- region1 - colMeans(region1)[col(region1)]
+  wss1 <- sum(errs1^2)
+  region2 <- subset(data,data[,1]==2)
+  errs2 <- region2 - colMeans(region2)[col(region2)]
+  wss2 <- sum(errs2^2)
+  region3 <- subset(data,data[,1]==3)
+  errs3 <- region3 - colMeans(region3)[col(region3)]
+  wss3 <- sum(errs3^2)
+  return(wss1+wss2+wss3)
+}
+
+sim_annealing_cluster <- function(data,temps,tau_start=5,restarts=15,groups=3,alpha=0.9){
+  ## INITIAL VALUES
+  set.seed(1999) # fix results
+  num_reps <- restarts / length(temps) 
+  cooling <- c(rep(temps[1],num_reps),rep(temps[2],num_reps),rep(temps[3],num_reps))
+  tau <- rep(tau_start,restarts) # 15 random restarts 
+  # withinss based on groups given by data
+  run_wss <- compute_wss(data) 
+  best_wss <- run_wss
+  wss <- run_wss
+  
+  for(j in 2:restarts){tau[j] <- alpha*tau[j-1]} # 10, 9, 8.1, etc
+  ## MAIN
+  for(j in 1:restarts){
+	  for(i in 1:cooling[j]){
+	    # randomly select data point, reassign its cluster
+	    new_data <- data
+	    row <- sample(1:nrow(new_data),1)
+	    random_obs <- new_data[row,]
+	    random_obs[,1] <- c(new_data[,1]$region) %>%
+	                        setdiff(sample(groups,1)) %>% 
+	                        sample(1)
+	    new_data[row,] <- random_obs
+	    run_step_wss <- compute_wss(new_data)
+		  
+	    p <- min(1,exp((run_wss-run_step_wss)/tau[j])) 
+ 		  # accept new data (with reassigned row) with probability p
+		  if(rbinom(1,1,p)){  
+			  data <- new_data
+		    run_wss <- run_step_wss}
+		  if(run_step_wss < best_wss){
+			  data <- new_data 
+			  best_wss <- run_step_wss}
+		  wss <- c(wss,run_wss) # update vector of sum of squares
+	  }
+  }
+  list(WithinSSError=wss,Best_Predictors=data[,1],Best_error=best_wss)
+}
+temps <- c(60,120,220)
+sim_ann_results <- sim_annealing_cluster(wine_data,temps)
+plot(1:length(sim_ann_results[[1]]),sim_ann_results[[1]], pch=20,
+     xlab='Iteration',ylab='Total WSS',
+     main=sim_ann_results$Best_error)
+```
+Since we're starting with the initial data set, it takes a while for the 
+algorithm to find a better (albeit slightly) grouping of the observations. The 
+consecutive values in the plot are due to the algorithm fitting a model with the
+exact same groupings, leading to the same total within ss errors value. 
+Eventually, we see the algorithm reach lower values than the initial fit.
+
+## Genetic Algorithm
+```{r}
+genetic_algo_cluster <- function(data,iter=100,m.rate=0.1,P=20,ngroups=3){
+  n <- length(data)
+  m <- length(data[1,])
+  r <- matrix(0,P,1)
+  phi <- matrix(0,P,1)
+  runs <- matrix(0,P,m)
+  runs_next <- matrix(0,P,m)
+  runs_wss <- matrix(0,P,1)
+  all_wss <- matrix(0,P,iter)
+  run <- NULL
+  best_wss <- 0
+  best_wss_gen <- rep(0,iter)
+
+  # INITIALIZES STARTING GENERATION, FITNESS VALUES
+  for(i in 1:P){
+    new_data <- data
+	  row <- sample(1:nrow(new_data),1)
+	  random_obs <- new_data[row,]
+	  random_obs[,1] <- c(new_data[,1]$region) %>%
+	                        setdiff(sample(groups,1)) %>% 
+	                        sample(1)
+	  new_data[row,] <- random_obs
+	  run_step_wss <- compute_wss(new_data)
+	  all_wss[i,1] <- runs_wss[i]
+	  if(runs_wss[i] < best_wss){
+		  run <- runs[i,]
+		  best_wss <- runs_wss[i]
+	  }
+  }
+  r <- rank(-runs_wss)
+  phi <- 2*r/(P*(P+1))
+  best_wss_gen[1] <- best_wss
+
+  ## MAIN
+  for(j in 1:iter-1){
+	  # BUILDS THE NEW GENERATION, SELECTING FIRST PARENT BASED ON
+	  # FITNESS AND THE SECOND PARENT AT RANDOM
+	  for(i in 1:10){
+		  parent.1 <- runs[sample(1:P,1,prob=phi),]
+		  parent.2 <- runs[sample(1:P,1),]
+		  pos <- sample(1:(m-1),1)
+		  mutate <- rbinom(m,1,m.rate)
+		  runs_next[i,] <- c(parent.1[1:pos],parent.2[(pos+1):m])
+		  runs_next[i,] <- (runs_next[i,]+mutate)*2
+		  mutate <- rbinom(m,1,m.rate)
+		  runs_next[P+1-i,] <- c(parent.2[1:pos],parent.1[(pos+1):m])
+		  runs_next[P+1-i,] <- (runs_next[P+1-i,]+mutate)*2
+	  }
+	  runs <- runs_next
+
+  	# UPDATES AIC VALUES, FITNESS VALUES FOR NEW GENERATION
+	  for(i in 1:P){
+      new_data <- data
+	    row <- sample(1:nrow(new_data),1)
+	    random_obs <- new_data[row,]
+	    random_obs[,1] <- c(new_data[,1]$region) %>%
+	                        setdiff(sample(groups,1)) %>% 
+	                        sample(1)
+	    new_data[row,] <- random_obs
+	    run_step_wss <- compute_wss(new_data)
+	    all_wss[i,1] <- runs_wss[i]
+		  if(runs_wss[i] < best_wss){
+			  run <- runs[i,]
+			  best_wss <- runs_wss[i]
+	  	}
+	  }
+	  best_wss_gen[j+1]<-best_wss
+	  r <- rank(-runs_wss)
+	  phi <- 2*r/(P*(P+1))
+  }
+  list(all_wss)
+}
+# genetic_algo_cluster(wine_data)
+# --> this is just outputting all 0s
+```
+
+
+# Third Problem
+Implement the basic stochastic gradient descent algorithm for MLE (StGD); 
+here we want to maximize the function \
+$\ell_i(\theta)=\sum_{i=1}^n\ell(\theta;X_i)$ \
+($\ell(\theta;X_i)$ is the standard log-likelihood with a single data point Xi) \
+Need to compute gradients of each $\ell_i(\theta)$ to compute the updates in SGD
+(rather than using all the X's), so that f and the (optional depending on how 
+you input f) data inputs should be written accordingly. \
+Test code on the Probit regression example from class notes. Step-size 
+constraints: Decreasing gains with $\sum_t\gamma_t^2<\infty, \sum_t\gamma_t=\infty$ \
+Best convergence speed under sufficient conditions: $\gamma_t\sim t^{-1}$
+
+\
+Probit regression: $P(Y=1|X)=\Phi(X^T\beta)$ \
+Assume true slopes and intercept are $\beta=(0.5,0.4,-0.3,0.7)$, and $-2$.\
+Stochastic gradient descent algorithm: \
+$w_{t+1} = w_t - \gamma_t\nabla_wQ(z_t, w_t)$
+```{r}
+set.seed(1984)
+# specify true values
+b <- c(0.5,0.4,-0.3,0.7) 
+intercept <- -2
+
+# randomly generate data
+x <- matrix(rbinom(1600,1,0.5),ncol=4) 
+
+# randomly generate response variable, with probabilities according to probit
+response_Prbt <- rbinom(400,1,pnorm(intercept + c(x %*% b))) 
+
+binregLik<-function(betas, int, x, response, dist_func = pnorm){
+  prob <- dist_func(c(x %*% betas) + int)
+  log(ifelse(response == 1, prob, 1 - prob))
+}
+
+compute_gradient <- function(b,int,x,y){
+  gradient <- matrix(c(y*x[1]/(x%*%b+int) + x[1]*(1-y)/(1-(x%*%b+int)),
+                       y*x[2]/(x%*%b+int) + x[2]*(1-y)/(1-(x%*%b+int)),
+                       y*x[3]/(x%*%b+int) + x[3]*(1-y)/(1-(x%*%b+int)),
+                       y*x[4]/(x%*%b+int) + x[4]*(1-y)/(1-(x%*%b+int)),
+                       y/(x%*%b+int) + (1-y)/(1-(x%*%b+int))),ncol=1)
+}
+
+Gradmat<-function(x, f, eps = 1e-08){
+  # Calculate the difference-quotient approx gradient (matrix) of an arbitrary 
+  # input (vector) function "f" at "x"
+  dd = length(x)
+  aa = length(f(x))
+  epsmat = (diag(dd) * eps)/2
+  gmat = array(0, dim = c(aa, dd))
+  for(i in 1:dd){
+    gmat[, i] <- (f(x + epsmat[, i]) -
+    f(x - epsmat[, i]))/eps}
+  if(aa > 1) gmat else c(gmat)
+}
+
+StGD_probit <- function(guess, f, data, step=0.1, max.iter=100){
+  # guess: vector of betas and intercept
+  # f is the likelihood for each data point -> binregLik
+  # data is the randomly-generated matrix, with rows to be selected at random
+  num_vars <- length(data[1,])
+  num_obs <- nrow(data)
+  
+  # initial intercept (bias) and betas (weights)
+  intercept <- guess[length(guess)]
+  betas <- guess[1:length(guess)-1] 
+  for (k in 1:max.iter) { # ***CHANGE TO max.iter WHEN WORKING ***
+    for (i in 1:num_obs) { # *** CHANGE TO num_obs WHEN WORKING ***
+      # randomly select data point and corresponding response
+      index <- sample(1:num_obs, 1)
+      row <- x[index,]
+      # print(row)
+      # y_true <- response[index]
+      
+      # compute loss (negative log-likelihood) and gradient
+      # z = X^T B + intercept
+      z <- sum(betas*row) + intercept
+      y_pred <- rbinom(1,1,pnorm(z))
+      # print(y_pred)
+      gradient <- compute_gradient(betas,intercept,row,y_pred)
+      # gradient <- Gradmat(row,f) # **couldn't get this to work
+      # print(gradient)
+      
+      # Update weights and bias using gradients and step size
+      # --> PLUS because the algorithm minimizes by default, to maximize, negate 
+      # the gradient, which changes the operator
+      # print(betas)
+      betas <- betas + step*gradient[1:length(gradient)-1]
+      # print(betas)
+      intercept <- intercept + step*gradient[length(gradient)]
+      
+      step <- 1/i 
+    }
+  }
+  list(Betas = betas, Intercept = intercept)
+}
+# try initial guess B = (0.3,0.2,-0.1,0.8), with intercept -1
+StGD_probit(c(0.3,0.2,-0.1,0.8,-1),binregLik,x)
+```

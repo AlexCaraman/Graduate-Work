@@ -1,0 +1,528 @@
+---
+title: "Stat 705 HW7"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+Several parts still aren't working quite right, I'm running out of time again.
+Certainly feels like these problems are a bit more complicated than necessary
+given our time frame, and considering that I had to work over 20 hours in total
+over the weekend. That said, nothing is "missing" in this submission. The code 
+below is so that the file actually compiles.
+```{r}
+FIXED <- FALSE
+```
+
+# Problem 4.1 
+Recall the peppered moth analysis introduced in Example 4.2. In the field, it is 
+quite difficult to distinguish the insularia and typica phenotypes due to 
+variations in wing color and mottle. In addition to the 622 moths mentioned in 
+the example, suppose the sample collected by the researchers actually included 
+$n_U=578$ more moths that were known to be insularia or typical but whose exact 
+phenotypes could not be determined.
+
+## a
+Derive the EM algorithm for maximum likelihood estimation of $p_C, p_I, p_T$ for
+this modified problem having observed data $n_C, n_I, n_T, n_U$ as given above.\
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW7 1a.jpg") 
+
+## b
+Apply the algorithm to find the MLEs.
+```{r}
+# n_C, n_I, n_T, n_U 
+x <- c(85,196,341,578)
+n <- rep(0,6)
+p <- rep(1/3,3) # initial values
+iter <- 50
+base.values <- matrix(0,3,iter+1) # to save all results
+# function to compute expectations
+allele_estep <- function(x,p){
+  # p: C I T,  x: C I T U
+  # common factors
+  A <- p[1]^2+2*p[1]*p[2]+2*p[1]*p[3]
+  B <- p[2]^2+2*p[2]*p[3]
+  C <- p[2]^2+2*p[2]*p[3]+p[3]^2
+    
+  # these are the same, since n_u is only I or T
+  n.cc <- (x[1]*(p[1]^2))/A
+  n.ci <- (2*x[1]*p[1]*p[2])/A
+  n.ct <- (2*x[1]*p[1]*p[3])/A
+  # these have extra uncertainty, additional terms are E[n_{}^u] 
+  n.ii <- (x[2]*(p[2]^2))/B + (x[4]*p[2]^2)/C
+  n.it <- (2*x[2]*p[2]*p[3])/B + (2*x[4]*p[2]*p[3])/C
+  n.tt <- x[3] + (x[4]*(p[3]^2))/C
+  n <- c(n.cc,n.ci,n.ct,n.ii,n.it,n.tt)
+  return(n)
+}
+
+# function to maximize probabilities
+allele_mstep <- function(x,n){
+  p.c <- (2*n[1]+n[2]+n[3])/(2*sum(x))
+  p.i <- (2*n[4]+n[5]+n[2])/(2*sum(x))
+  p.t <- (2*n[6]+n[3]+n[5])/(2*sum(x))
+  p <- c(p.c,p.i,p.t)
+  return(p)
+}
+
+## EM Algorithm, repeat steps iter times
+base_em_start <- Sys.time()
+for(i in 2:iter){
+  n <- allele_estep(x,p)
+  p <- allele_mstep(x,n)
+  base.values[,i] <- p
+}
+base_em_time <- Sys.time() - base_em_start
+p
+```
+
+## c
+Estimate the standard errors and pairwise correlations for 
+$\hat{p_C},\hat{p_I},\hat{p_T}$ using SEM algorithm.
+```{r}
+# Uses allele_estep, allele_mstep
+p <- rep(1/3,3) # reset initial values
+p_update <- p
+theta <- matrix(0,3,3)
+psi <- rep(0,3)
+r <- matrix(0,3,3)
+
+for(i in 1:iter){
+    n_update = allele_estep(x,p_update)
+    p_update = allele_mstep(x,n_update)
+}
+
+# initialize theta
+for(j in 1:length(p)){
+  theta[,j] <- p_update
+  theta[j,j] <- p[j]
+}
+
+# main algorithm
+for(t in 1:5){
+  n <- allele_estep(x,p)
+  p.hat <- allele_mstep(x,n)
+  for(j in 1:length(p)){
+    theta[j,j] <- p.hat[j]
+    n <- allele_estep(x,theta[,j])
+    psi <- allele_mstep(x,n)
+    for(i in 1:length(p)){r[i,j] <- (psi[i]-p_update[i])/(theta[j,j]-p_update[j])}
+  }
+  p <- p.hat
+}
+
+## COMPLETE INFORMATION
+iy.hat<-matrix(0,2,2)
+iy.hat[1,1] <- ((2*n_update[1]+n_update[2]+n_update[3])/(p_update[1]^2) +
+     (2*n_update[6]+n_update[3]+n_update[5])/(p_update[3]^2))
+iy.hat[2,2] <- ((2*n_update[4]+n_update[5]+n_update[2])/(p_update[2]^2) +
+     (2*n_update[6]+n_update[3]+n_update[5])/(p_update[3]^2))
+iy.hat[1,2] <- (2*n_update[6]+n_update[3]+n_update[5])/(p_update[3]^2)
+iy.hat[2,1] <- iy.hat[1,2]
+
+## COMPUTES STANDARD ERRORS AND CORRELATIONS
+var.hat <- solve(iy.hat)%*%(diag(2)+t(r[-3,-3])%*%solve(diag(2)-t(r[-3,-3])))
+sd.hat <- c(sqrt(var.hat[1,1]),sqrt(var.hat[2,2]),sqrt(sum(var.hat)))
+cor.hat <- c(var.hat[1,2]/(sd.hat[1]*sd.hat[2]),
+    (-var.hat[1,1]-var.hat[1,2])/(sd.hat[1]*sd.hat[3]),
+    (-var.hat[2,2]-var.hat[1,2])/(sd.hat[2]*sd.hat[3]))
+cat('Allele Proportions: p_C, p_I, p_T \n')
+p
+cat('Estimated Standard errors: p_C, p_I, p_T \n')
+sd.hat
+cat('Estimated Pairwise Correlations: (p_C,p_I), (p_C,p_T), (p_I,p_T) \n')
+cor.hat 
+```
+The results above mean the proportions of the I and T alleles both have an error
+of about 1.1%, while the C allele has an error of about 0.3%. Based on the 
+calculated proportions, we can say that $C\in(3,3.9)$%, $I\in(20,23)$%,
+$T\in(73,76)$%, all roughly speaking and based on our sample. These results can
+vary with different runs of the code. \
+The correlations are all negative, which is intuitive because the proportions
+must all sum to one, so if any of them increase it is expected for the others
+to decrease. The strongest correlations are with the T allele, which has a very
+strong negative correlation with I. This means that if we see more and more T 
+moths, we expect to see far fewer I moths. The other correlations are only 
+slightly negative, but have a similar interpretation
+
+## d
+Estimate the standard errors and pairwise correlations for 
+$\hat{p_C},\hat{p_I},\hat{p_T}$ by boot-strapping.
+```{r}
+# uses allele_estep, allele_mstep
+p <- rep(1/3,3) # reset initial values
+n <- rep(0,6)
+boots <- 10000
+theta <- matrix(0,3,boots)
+
+## MAIN
+for(i in 1:iter){
+  n <- allele_estep(x,p)
+  p <- allele_mstep(x,n)
+}
+theta[,1] <- p
+for(j in 2:boots){
+  # randomly generate initial group sizes
+  n_c <- rbinom(1, sum(x), x[1]/sum(x))
+  n_i <- rbinom(1, sum(x) - n_c, x[2]/(sum(x)-x[1]))
+  n_t <- rbinom(1, sum(x) - n_c - n_i, x[3]/(sum(x)-x[1]-x[2]))
+  n_u <- sum(x) - n_c - n_i - n_t
+  x.new <- c(n_c,n_i,n_t,n_u)
+  n <- rep(0,6)
+  p <- rep(1/3,3)
+  for(i in 1:iter){
+    n <- allele_estep(x.new,p)
+    p <- allele_mstep(x.new,n)
+  }
+  theta[,j] <- p
+}
+
+# compute bootstrapped sample std deviation and correlation
+sd.hat <- c(sd(theta[1,]), sd(theta[2,]), sd(theta[3,]))
+cor.hat <- c(cor(theta[1,],theta[2,]), cor(theta[1,],theta[3,]),
+    cor(theta[2,],theta[3,]))
+
+cat('Allele Proportions: p_C, p_I, p_T \n')
+p
+cat('Standard Error Estimates: p_C, p_I, p_T \n')
+sd.hat
+cat('Estimated Pairwise Correlations: (p_C,p_I), (p_C,p_T), (p_I,p_T) \n')
+cor.hat
+```
+The results have very similar interpretations to part c).
+
+## e
+**I feel like I have the set-up correct, but this is getting an error I can't**
+**seem to fix.** \
+Implement the EM gradient algorithm for these data. Experiment with step-halving
+to ensure ascent and with other step scalings that may speed up convergence.\
+Derivation of algorithm is written in my notes.\
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW7 1e.jpg")
+```{r,warning=FALSE}
+# uses allele_estep, allele_mstep
+p <- rep(1/3,3) # reset initial values
+n <- rep(0,9)
+gradient.values <- matrix(0,3,iter+1) # to save all results
+gradient.values[,1] <- p
+alpha.default <- 1
+
+allele_estep2 <- function(x,p){
+  # p: C I T,  x: C I T U
+  # common factors
+  A <- p[1]^2+2*p[1]*p[2]+2*p[1]*p[3]
+  B <- p[2]^2+2*p[2]*p[3]
+  C <- p[2]^2+2*p[2]*p[3]+p[3]^2
+    
+  # same as text
+  n.cc <- (x[1]*(p[1]^2))/A
+  n.ci <- (2*x[1]*p[1]*p[2])/A
+  n.ct <- (2*x[1]*p[1]*p[3])/A
+  n.ii <- (x[2]*(p[2]^2))/B 
+  n.it <- (2*x[2]*p[2]*p[3])/B 
+  n.tt <- x[3]
+  # additional unknown group
+  m.ii <- (x[4]*p[2]^2)/C
+  m.it <- (2*x[4]*p[2]*p[3])/C
+  m.tt <- (x[4]*(p[3]^2))/C
+  n <- c(n.cc,n.ci,n.ct,n.ii,n.it,n.tt,m.ii,m.it,m.tt)
+  return(n)
+}
+# compute log-likelihood, combine into four bins: C, I, T, U first three stay the same (?)
+allele_log <- function(x,p){
+  l <- x[1]*log(2*p[1] - p[1]^2) + 
+    x[2]*log(p[2]^2 + 2*p[2]*p[3]) + 
+    2*x[3]*log(p[3]) +
+    x[4]*log(p[2]^2+2*p[2]*p[3]+p[3]^2)
+  return(l)
+}
+
+# gradient of Q
+Q.prime <- function(n,p){
+  # first parts the same, plus additional terms
+  dp_C <- (2*n[1]+n[2]+n[3])/(p[1]) - (n[3]+n[5]+2*n[6]+n[8]+2*n[9])/(p[3])
+  dp_I <- (n[2]+2*n[4]+n[5]+2*n[7]+n[8])/(p[2]) - 
+    (n[3]+n[5]+2*n[6]+n[8]+2*n[9])/(p[3])
+  dQ <- c(dp_C,dp_I)
+  return(dQ)
+}
+
+# Hessian of Q
+Q.2prime <- function(n,p){
+  dp_C2 <- -(2*n[1]+n[2]+n[3])/(p[1]^2) - (n[3]+n[5]+2*n[6]+n[8]+2*n[9])/(p[3]^2)
+  dp_I2 <- (n[2]+2*n[4]+n[5]+2*n[7]+n[8])/(p[2]^2) - 
+    (n[3]+n[5]+2*n[6]+n[8]+2*n[9])/(p[3]^2)
+  dp_Cp_I <- -(n[3]+n[5]+2*n[6]+n[8]+2*n[9])/(p[3]^2)
+  d2Q <- matrix(c(dp_C2,dp_Cp_I,dp_Cp_I,dp_I2), nrow=2, byrow=TRUE)
+  return(d2Q)
+}
+
+## MAIN
+l.old <- allele_log(x,p)
+gradient_em_start <- Sys.time()
+FIXED <- TRUE
+if (FIXED){
+  for(i in 1:iter){
+    alpha <- alpha.default
+    n <- allele_estep2(x,p)
+    p.new <- p[1:2] - alpha*solve(Q.2prime(n,p))%*%Q.prime(n,p)
+    p.new[3] <- 1 - p.new[1] - p.new[2]
+    if((sum(p.new>0) == 3) && (sum(p.new<1)==3)){l.new <- allele_log(x,p.new)}
+    while((sum(p.new>0) == 3)  || (sum(p.new<1)==3) || (l.new < l.old)){
+      alpha <- alpha/2 # step halving
+      p.new <- p[1:2] - alpha*solve(Q.2prime(n,p))%*%Q.prime(n,p)
+      p.new[3] <- 1 - p.new[1] - p.new[2]
+      if((sum(p.new>0) == 3) && (sum(p.new<1)==3)){l.new <- allele_log(x,p.new)}
+      }
+    p <- p.new
+    gradient.values[,i+1] <- p
+    l.old <- l.new
+  }
+  gradient_em_time <- Sys.time() - gradient_em_start
+}
+```
+
+## f 
+**Unsure about derivations, MANY places to make algebraic errors. Is also giving** 
+**the same error as part e.**\
+Implement Aitken accelerated EM for these data. Use step-halving. \
+Derivation of stuff also on notes paper. \
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW7 1f.jpg")
+```{r}
+# uses allele_estep2, allele_mstep, allele_log
+p <- rep(1/3,3) # reset initial values
+n <- rep(0,9)
+aitken.values <- matrix(0,3,iter+1) # to save all results
+aitken.values[,1] <- p
+alpha.default <- 2
+
+# computes complete information, the negative expectation of 2nd deriv of Q
+allele.iy <- function(n,p){
+  iy.hat<-matrix(0,2,2)
+  iy.hat[1,1] <- (2*n[1]+n[2]+n[3])/(p[1]^2) + 
+    (n[3]+n[5]+2*n[6]+n[8]+2*n[9])/(p[3]^2)
+  iy.hat[2,2] <- (n[2]+2*n[4]+n[5]+2*n[7]+n[8])/(p[2]^2) + 
+    (n[3]+n[5]+2*n[6]+n[8]+2*n[9])/(p[3]^2)
+  iy.hat[1,2] <- iy.hat[2,1] <- (n[3]+n[5]+2*n[6]+n[8]+2*n[9])/(p[3]^2)
+  return(iy.hat)
+}
+
+# second derivative matrix for log-likelihood
+allele_log_2prime <- function(x,p){
+  l.2prime <- matrix(0,2,2)
+  l.2prime[1,1] <- 2*x[1]/(p[1]^2+2*p[1]) - x[1]*(2*p[1]+2)^2/(p[1]^2+2*p[1])^2 -
+    2*x[4]/(1-2*p[1]-p[1]^2) - x[4]*(-2*p[1]-2)^2/(1-2*p[1]-p[1]^2)^2 - 
+    4*x[2]*p[2]^2/(2*p[2]-2*p[2]*p[1]-p[2]^2)^2 - 2*x[3]/(1-p[1]-p[2])^2
+  l.2prime[2,2] <- -2*x[2]/(2*p[2]-2*p[1]*p[2]-p[1]^2) -
+    x[2]*(2-2*p[2]-2*p[1])^2/(2*p[2]-2*p[1]*p[2]-p[2]^2)^2 -
+    2*x[3]/(1-p[1]-p[2])^2
+  l.2prime[1,2] <- l.2prime[2,1] <- 2*x[2]*p[2]*(2-2*p[1]-2*p[2])/
+    (2*p[2]-2*p[1]*p[2]-p[2]^2)^2 -
+    2*x[2]/(2*p[2]-2*p[1]*p[2]-p[2]^2) - 2*x[3]/(1-p[1]-p[2])^2
+  return(l.2prime)
+}
+
+if (FIXED){
+  l.old <- allele_log(x,p)
+  aitken_em_start <- Sys.time()
+  for(i in 1:iter){
+    alpha <- alpha.default
+    n <- allele_estep2(x,p)
+    p.em <- allele_mstep(x,n)
+    p.new <- (p[1:2] - alpha*solve(allele_log_2prime(x,p))%*%
+                allele.iy(n,p)%*%(p.em[1:2]-p[1:2]))
+    p.new[3] <- 1 - p.new[1] - p.new[2]
+    if((sum(p.new>0) == 3) && (sum(p.new<1)==3)){l.new <- allele_log(x,p.new)}
+    # REDUCE ALPHA UNTIL A CORRECT STEP IS REACHED
+    while(sum(p.new>0) == 3 || (sum(p.new<1)==3) || l.new < l.old){
+      alpha <- alpha/2
+      p.new <- (p[1:2] - alpha*solve(allele_log_2prime(x,p))%*%
+                  allele.iy(n,p)%*%(p.em[1:2]-p[1:2]))
+      p.new[3] <- 1 - p.new[1] - p.new[2]
+      if((sum(p.new>0) == 3) && (sum(p.new<1)==3)){l.new <- allele_log(x,p.new)}
+    }
+    p <- p.new
+    aitken.values[,i+1] <- p
+    l.old <- l.new
+  }
+  aitken_em_time <- Sys.time() - aitken_em_start
+}
+```
+
+## g
+Implement quasi-Newton EM for these data. Compare performance with and without 
+step-halving. \
+This uses everything that has been implemented previously, but with a different
+algorithm.
+```{r}
+# uses allele_estep, allele_log, Q.prime, Q.2prime
+p <- rep(1/3,3) # reset initial values
+n <- rep(0,6)
+m <- matrix(0,2,2)
+b <- matrix(0,2,2)
+qn.values <- matrix(0,3,iter+1)
+qn.values[,1] <- p
+alpha.default <- 2
+
+if (FIXED) {
+  l.old <- allele_log(x,p)
+  qn_em_start <- Sys.time()
+  for(i in 1:iter){
+    alpha <- alpha.default
+    n <- allele_estep2(x,p)
+    m <- Q.2prime(n,p) - b
+    p.new <- p[1:2] - alpha*solve(m)%*%Q.prime(n,p)
+    p.new[3] <- 1 - p.new[1] - p.new[2]
+    if((sum(p.new>0) == 3) && (sum(p.new<1)==3)){l.new <- allele_log(x,p.new)}
+    # REDUCE ALPHA UNTIL A CORRECT STEP IS REACHED
+    while((sum(p.new>0) == 3) || (sum(p.new<1)==3) || l.new < l.old){
+      alpha <- alpha/2
+      p.new <- p[1:2] - alpha*solve(m)%*%Q.prime(n,p)
+      p.new[3] <- 1 - p.new[1] - p.new[2]
+      if(p.new > 0 && p.new < 1){l.new <- allele_log(x,p.new)}}
+      at <- p.new[1:2]-p[1:2]
+      n <- allele_estep(x,p.new)
+      bt <- Q.prime(n,p)-Q.prime(n,p.new)
+      vt <- bt - b%*%at
+      ct <- as.numeric(1/(t(vt)%*%at))
+      b <- b + ct*vt%*%t(vt)
+      p <- p.new
+      qn.values[,i+1] <- p
+      l.old <- l.new
+  }
+  qn_em_time <- Sys.time() - qn_em_start
+  p
+}
+```
+
+## h
+**Since I was unable to get the other algorithms to work properly, this only**
+**shows results for the base algorithm.** \
+Compare the effectiveness and efficiency of the standard EM algorithm and the 
+three variants in e), f), g). Use step-halving to ensure ascent with the three
+variants. Base your comparison on a variety of starting points. Create a graph
+analogous to Figure 4.3
+```{r}
+# cbind(base_em_time,gradient_em_time,aitken_em_time,qn_em_time)
+
+# Plotting convergence
+pb = seq(0.001,0.4,length=100)
+c = outer(pb,pb,function(a,b){1-a-b})
+pbs = matrix(0,3,10000)
+pbs[1,] = rep(pb,100)
+pbs[2,] = rep(pb,each=100)
+pbs[3,] = as.vector(c)
+z = matrix(apply(pbs,2,allele_log,x=x),100,100)
+contour(pb,pb,z,nlevels=20,drawlabels=F,xlab='p_C',ylab='p_I')
+for(i in 1:iter){
+  segments(base.values[1,i],base.values[2,i],base.values[1,i+1],
+    base.values[2,i+1],lty=2,col='red')
+  if (FIXED){
+    segments(gradient.values[1,i],gradient.values[2,i],gradient.values[1,i+1],
+      gradient.values[2,i+1],lty=2,col='yellow')
+    segments(aitken.values[1,i],aitken.values[2,i],aitken.values[1,i+1],
+      aitken.values[2,i+1],lty=2,col='blue')
+    segments(qn.values[1,i],qn.values[2,i],qn.values[1,i+1],
+      qn.values[2,i+1],lty=2,col='darkgreen')  
+  }
+}
+```
+
+
+# Problem 4.2
+$N=\sum_{i=1}^{16} n_i=1500$, with $n_i =$ number of respondents reporting $i=1,...,16$ \
+Three groups: Zero (z), Typical (t), Promiscuous (p). \
+$\alpha$: probability of belonging to Zero reporting 0 despite untrue.\
+$\beta$: probability of belonging to Typical with typical behavior, $n_i \sim Poi(\mu)$ \
+$1-\alpha-\beta$: probability of belonging to high risk Promiscuous group, 
+respond truthfully, $n_i\sim Poi(\lambda)$ \
+
+##  a
+Show that the EM algorithm provides the following updates (written by hand):\
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW7 2a.jpg")
+
+## b and c
+Estimate the parameters of the model, using the observed data. \
+Estimate the standard errors and pairwise correlations of your parameter 
+estimates, using any available method.
+```{r}
+# function for probabilities
+pi_i <- function(alpha,beta,mu,lambda,i) {
+  if (i==0){alpha + beta * exp(-mu) + (1-alpha-beta)*exp(-lambda)}
+  else {beta* mu^i* exp(-mu) + (1-alpha-beta)* lambda^i *exp(-lambda)}}
+
+z_0 <- function(alpha,beta,mu,lambda,i) {
+  alpha / pi_i(alpha, beta, mu, lambda,i)}
+
+t_i <- function(alpha,beta,mu,lambda,i){
+  beta * mu^i * exp(-mu)/pi_i(alpha, beta, mu, lambda,i)}
+
+p_i <- function(alpha,beta,mu,lambda,i){
+  (1-alpha-beta) * lambda^i * exp(-lambda)/pi_i(alpha, beta, mu, lambda,i)
+}
+
+# data, initial values
+encounters <- 0:16
+frequencies <- c(379,299,222,145,109,95,73,59,45,30,24,12,4,2,0,1,1)
+alpha <- 0.5
+beta <- 0.2
+mu <- 2
+lambda <- 5
+estimate <- c(alpha, beta, mu, lambda)
+iter <- 20
+# bootstrapping variables for part c)
+boots <- 1000
+N <- sum(frequencies)
+nullprob <- frequencies/N
+for (i in 1:boots){
+  freq <- rmultinom(1,size=N,prob=nullprob)
+  # initial guesses
+  alpha <- 0.5
+  beta <- 0.2
+  mu <- 2
+  lambda <- 5
+  j <- c(encounters)
+  n_i <- freq
+  for (i in 1:iter){
+    alpha_t <- alpha
+    beta_t <- beta
+    mu_t <- mu
+    lambda_t <- lambda
+    # compute alpha update
+    alpha_t1 <- n_i[1] * z_0(alpha_t,  beta_t, mu_t, lambda_t, j[1])/sum(n_i)
+  
+    # compute beta update
+    b <- 0
+    for (i in 1:length(j)){
+      b <- b + n_i[i]*t_i(alpha_t,beta_t,mu_t,lambda_t,j[i])}
+    beta_t1 <- b/sum(n_i)
+  
+    # compute mu update
+    m <- 0
+    for (i in 1:length(j)){
+      m <- m + j[i]*n_i[i]*t_i(alpha_t,beta_t,mu_t,lambda_t,j[i])/b}
+    mu_t1 <- m
+  
+    # compute lambda update
+    p <- l <- 0
+    for (i in 1:length(j))  {
+      p <- p + n_i[i]*p_i(alpha_t,  beta_t, mu_t, lambda_t, j[i])}
+    for (i in 1:length(j))  {
+      l <- l + j[i]*n_i[i]*p_i(alpha_t,  beta_t, mu_t, lambda_t, j[i])/p}
+    lambda_t1 <- l
+  
+    estimate <- rbind(estimate, c(alpha_t1,beta_t1,mu_t1,lambda_t1))
+    # update parameters
+    alpha <- alpha_t1
+    beta <- beta_t1
+    mu <- mu_t1
+    lambda <- lambda_t1
+  }
+}
+# b)
+cat('Parameter Estimates: Alpha, Beta, Mu, Lambda \n')
+estimate[1,]
+# c)
+cat('Corresponding Standard Errors: \n')
+diag(cov(estimate))
+cat('Pairwise Correlations: Alpha[1], Beta[2], Mu[3], Lambda[4] \n')
+cor(estimate)
+```

@@ -1,0 +1,74 @@
+---
+title: "Stat 705 HW 1"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+# Problem 1
+```{r,warning=FALSE}
+library(MASS)
+# galaxies
+avg <- mean(galaxies) # or avg <- sum(galaxies) / length(galaxies)
+std_dev <- sd(galaxies) # or sqrt(sum((galaxies-avg)^2)/(length(galaxies)-1))
+cat('Mean:', avg, '\nStandard deviation:', std_dev)
+histo1 <- hist(galaxies,main='Galaxies Histogram: Default Bins')
+histo2 <- hist(galaxies,breaks=10,main='Galaxies Histogram: 10 Bins')
+histo3 <- hist(galaxies,breaks=20,main='Galaxies Histogram: 20 Bins')
+```
+
+# Problem 2
+```{r}
+# Function with for loop
+integer_summer <- function(n){
+  start1 <- Sys.time()
+  loop_total <- 0
+  for (i in 1:n){
+    loop_total <- loop_total + i 
+  }
+  end1 <- Sys.time()
+  cat('\nN =',n,'\n\tFor loop sum:',loop_total,'Time:', end1-start1)
+  
+  start2 <- Sys.time()
+  primitive_total <- sum(1:n) # primitive R function
+  end2 <- Sys.time()
+  cat('\n\tPrimitve sum:',primitive_total,'Time:', end2-start2)
+}
+```
+```{r}
+options(scipen=999) # avoid scientific notation, easier comparisons
+# n = 100, 1000,10000
+integer_summer(100)
+integer_summer(1000)
+integer_summer(10000)
+# For each order of magnitude, the for loop is progressively slower than the sum
+# function. In other words, the computational time for the loop grows at a much
+# faster rate than sum().
+```
+
+# Problem 3
+```{r}
+v <- c(rep('H',5),rep('e',5),rep('l',10),rep('o',5),
+       rep('W',5),rep('o',5),rep('r',5),rep('l',5),rep('d',5))
+# start on 2nd element of 5, go through length, jump 5 elements at a time
+subv <- v[seq(2, length(v), 5)] 
+print(subv)
+```
+
+# Problem 4
+```{r}
+item1 <- matrix(runif(n=10*10,min=0,max=1),nrow=10)
+first_hundo <- 1:100
+item2 <- first_hundo[seq(0,length(first_hundo),7)]
+item3 <- as.character(item2)
+large_object <- list(item1,item2,item3)
+items <- length(large_object)
+
+total_length <- 0
+for(i in 1:items){
+  item_length <- length(large_object[[i]])
+  cat('\nLength of item',i,':',item_length)
+  total_length <- total_length + item_length
+}
+cat('\nTotal length:',total_length)
+```
+

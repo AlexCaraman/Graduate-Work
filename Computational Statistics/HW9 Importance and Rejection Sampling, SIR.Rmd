@@ -1,0 +1,257 @@
+---
+title: "Stat 705 HW9"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+# Load Libraries
+```{r,warning=FALSE,message=FALSE}
+library(tidyverse) # for pipe operator, data frame manipulation
+library(dplyr)
+library(dbplyr)
+library(ggplot2)
+library(bayestestR) # for credible interval
+```
+
+# Problem 6.3
+Consider finding $\sigma^2=E(X^2)$ when $X$ has the density that is proportional
+to $q(x)=e^{-|x|^3/3}$ *All results tabulated at the end of this section.*\
+
+## a.
+Estimate $\sigma^2$ using importance sampling with standardized weights. \
+```{r,message=FALSE,warning=FALSE}
+###  Target Function
+q_prop <- function(x) exp(-abs(x)^3/3)
+# Calculate normalizing constant
+norm_const <- integrate(q_prop,lower=-Inf,upper=Inf)$value
+q <- function(x) exp(-abs(x)^3/3) / norm_const
+xseq <- seq(-2.5,2.5,0.1)
+plot(xseq,q(xseq)) # how to bound this?
+ 
+g <- function(x) dnorm(x)
+lines(xseq,g(xseq),col="red") 
+
+n <- 10000
+iter <- 1000
+variance_estimates1 <- rep(0,iter)
+for (i in 1:iter){
+  samples <- rnorm(n, mean = 0, sd = 1) # proposal: N(0,1)
+  weights <- sapply(samples, function(theta) q(theta) / g(theta)) # calculate weights
+
+  weights_normalized <- weights / sum(weights)
+  variance_IS <- sum(samples^2 * weights_normalized) # we know true mean is 0
+  variance_estimates1[i] <- variance_IS
+}
+```
+
+## b.
+Repeat the estimation using rejection sampling. \
+```{r}
+M <- (1/norm_const) / (dnorm(0)) # sup (q(x)/g(x))
+variance_estimates2 <- rep(0,iter)
+for (i in 1:iter){
+  Y <- rnorm(n) # sample of size n from envelope g
+  gvals <- g(Y) # evaluate envelope at Y
+  fvals <- q(Y) # evaluate target at Y
+  U <- runif(n)
+  keep_inds <- U < fvals/(gvals * M) # rejection sampling algorithm
+  x_kept <- Y[keep_inds]
+  variance_estimates2[i] <- var(x_kept)
+}
+rm(Y,gvals,fvals,U)
+hist(x_kept,breaks=50,prob=T,main="Kept Samples from Last Run")
+lines(xseq,q(xseq),col="red")
+```
+
+
+```{r}
+all_results <- cbind(variance_estimates1,variance_estimates2)
+data.frame(Method=c("Rej","Imp"),Mean = colMeans(all_results),Repetitions=c(iter,iter))
+
+all_results <- all_results %>% data.frame() %>% pivot_longer(cols=c(variance_estimates1,variance_estimates2))
+ggplot(data = all_results) +
+  geom_freqpoly(mapping=aes(x=value,color=name),bins=50) +
+  ggtitle("Frequency Polygons for Variance Estimates (LAST ITERATES)")
+```
+
+Either of these methods probably could have been done without making q(x) a
+proper density, but the trade-off would just be scaling the candidate (normal)
+density by some constant C. e.g. if we did not normalize q(x), the candidate 
+g(x) would be something like 3*dnorm(x), which is not a valid density but 
+operates the same way for the  algorithm, since the algorithm is not dependent 
+upon having valid densities. The approach I used may not be as tractable for 
+target functions (densities) where the normalizing constant is extremely 
+difficult to calculate.
+
+# Problem 6.4
+Change-point model for coal-mining disaster data. $j=1,...,112$ for 1851 to 1962.
+$X_j$: number of accidents in year $j$ \
+$X_1,...,X_\theta \sim iid Poi(\lambda_1)$, $X_{\theta+1},...,X_{112} \sim iid Poi(\lambda_2)$,
+$\theta \in (1,...,111)$. Change-point occurs after $\theta$th year. \
+Three sets of priors for a Bayesian analysis of this model. In each case, 
+consider sampling from the priors as the first step of applying the SIR 
+algorithm for simulating from the posterior for the model parameters. Of primary 
+interest is inference about $\theta$. Use the SIR approach for the following.\
+
+## a. 
+Assume a discrete uniform prior on $\theta$, and priors \
+$\lambda_i|a_i \sim Gamma(3,a_i)$ \
+$a_i \sim Gamma(10,10)$, independently for $i=1,2$. \
+Denote the Gamma density function with $\Gamma(x;shape=\alpha,scale=\beta)$ \
+Posterior $\propto$ uniform prior * joint prior * likelihood \
+$Posterior \propto P(\theta)*P(\lambda_i,a_i)*f(x_1,...x_n|\lambda_i,a_i)$ \
+$\propto P(\theta)*P(\lambda_i|a_i)P(a_i)*f(x_1,...x_n|\lambda_i,a_i)$ \
+$\propto \frac{1}{112}*\Gamma(\lambda_1;3,a_1)*\Gamma(a_1;10,10)*\Gamma(\lambda_2;3,a_2)*\Gamma(a_2;10,10)*\prod_{1}^{\theta} Poi(x_i;\lambda_1) * \prod_{\theta+1}^{112} Poi(x_i;\lambda_2)$ \
+```{r,message=FALSE}
+# set-up, plots
+coal <- read_table("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/Data/datasets/coal.dat")
+ggplot(data=coal,mapping=aes(x=year,y=disasters)) +
+  geom_line() +
+  ggtitle("Coal Disasters per Year")
+
+x <- coal$disasters
+# essentially looking for the "elbow" point of the following graph
+cumsum(x) %>% plot(main="Cumulative Number of Coal Mining Disasters")
+```
+
+### i. 
+Estimate the posterior mean for $\theta$, providing a histogram and credible 
+interval \
+```{r,message=FALSE,warning=FALSE}
+set.seed(987)
+n <- 10000
+n_resample <- 100000
+
+# Sample from prior
+theta <- sample(1:(length(x)-1),n,replace=T) # change point can't occur in last year
+a1 <- rgamma(n,shape=10,rate=10)
+a2 <- rgamma(n,shape=10,rate=10)
+lam1 <- rgamma(n,shape=3,rate=a1)
+lam2 <- rgamma(n,shape=3,rate=a2)
+param_matrix <- cbind(theta,a1,a2,lam1,lam2)
+rm(theta,a1,a2,lam1,lam2)
+
+likelihood <- function(index){
+  t <- param_matrix[index,1]
+  lam1 <- param_matrix[index,4]
+  lam2 <- param_matrix[index,5]
+  seq1 <- 1:t # 1,2,...,theta
+  seq2 <- (t+1):length(x) # theta+1, theta+2, ... 112
+  return(exp(sum(dpois(x[seq1],lam1),log=T) + sum(dpois(x[seq2],lam2),log=T)))  
+}
+# weight by likelihood
+sir_weights <- sapply(1:n,likelihood)
+sir_weights <- sir_weights / sum(sir_weights)
+
+# resample X1,...,Xn from Y1,..,Ym with replacement with probabilities w(Y1),..., w(Ym)
+# i.e. resample the ROWS so we can hold onto each parameter value
+resampled <- param_matrix[sample(1:n,n_resample,replace=TRUE,prob=sir_weights),] %>% data.frame()
+
+theta_resamples <- data.frame(change=resampled$theta)
+post_mean <- mean(theta_resamples$change)
+post_var <- var(theta_resamples$change)
+ggplot(data=theta_resamples,mapping=aes(x=change)) +
+  geom_histogram(bins=50) +
+  geom_vline(xintercept = ci(theta_resamples$change,method="HDI")$CI_low, color = "red") + 
+  geom_vline(xintercept = ci(theta_resamples$change,method="HDI")$CI_high, color = "red") + 
+  ggtitle("Histogram of Posterior Means (95% Credible Interval in Red)",
+          toString(c("Mean:",mean(theta_resamples$change))))
+```
+
+### ii. 
+Provide similar information for estimating $\lambda_1, \lambda_2$ \
+```{r,warning=FALSE}
+lambda_resamples <- data.frame(lam1=resampled$lam1,lam2=resampled$lam2)
+ggplot(data=pivot_longer(lambda_resamples,cols=c(lam1,lam2)))+
+  geom_histogram(mapping=aes(x=value,fill=name),bins=100) +
+  xlim(c(0,8)) +
+  ggtitle("Histogram of Re-Sampled Lambda 1 and Lambda 2",
+          toString(c("Means:",colMeans(lambda_resamples) %>% round(2))))
+```
+The x-axis limits were truncated since there were only a couple of lambdas 
+greater than 8 that were re-sampled. They would not have even been visible on
+the plot and were thus omitted. The means suggest that after the 39th year, the
+rate of coal mining disasters per year changes from 2.65 to 0.41. $\lambda_2$
+appears to be pretty heavily concentrated around its mean, whereas $\lambda_1$
+almost appears to be multimodal, with peaks at 0.4, 2, 2.8, and 4. 
+
+### iii. 
+Make a scatter plot of $\lambda_1$ against $\lambda_2$ for the initial SIR 
+sample, highlighting the points re-sampled at second stage of SIR. \
+```{r}
+# use ifelse statement: check if initial lambda sample was re-sampled 
+# (i.e. in the selected rows)
+all_lams <- data.frame(lam1 = param_matrix[,4],lam2 = param_matrix[,5],
+                       repicked=ifelse(round(param_matrix[,4],3) %in% round(resampled$lam1,3)
+                                       & round(param_matrix[,5],3) %in% round(resampled$lam2,3),
+                                       "Yes","No"))
+
+ggplot(data=all_lams) +
+  geom_point(mapping=aes(x=lam1,y=lam2,color=repicked),size=0.5) +
+  ggtitle("Lambda1 vs Lambda 2, Re-Sampled Points Highlighted")
+```
+A slight pattern certainly emerges here (though much of the plot is somewhat 
+hard to see because of the overlap). We see that almost all of the most extreme
+lambda values (in either axis) are not re-sampled - the blue points never 
+exceeding about 14 for either lambda 1 or lambda 2. This makes sense, because 
+the data set does not have mining disasters occurring at such an extreme rate. 
+The most we saw in any year was 6, so a rate parameter of much higher than that
+makes no sense. While it can be argued that a parameter around 10-14 is also
+illogical, these points are in the vast minority of re-sampled values. That is,
+almost all of the re-sampled points are within $\lambda_1\in(0,8), \lambda_2 \in (0,2)$.
+This assertion is further supported by the preceding histogram.
+
+### iv.
+Report the following: \
+  a) initial and re-sampling sample sizes \
+  b) the number of unique points and highest observed frequency in re-sample \
+  c) a measure of the effective sample size for importance sampling in this case \
+```{r}
+# b)
+theta_occurences <- table(resampled$theta) %>% data.frame()
+nrow(theta_occurences)
+colnames(theta_occurences) <- c("Theta","Freq")
+theta_occurences[which(theta_occurences$Freq==max(theta_occurences$Freq)),]
+
+# c) formula from book pg 173
+1/sum(sir_weights^2)
+```
+The initial sample size was 10,000, while there were 100,000 re-sampled values.
+Every value of theta was re-sampled at least once, but the most common was 39 
+(corresponding to 1890 being the change point) which was re-sampled 11,406 times. 
+The estimate for effective sample size is about 33.
+
+
+```{r,include=F,echo=F}
+# old code doesn't work for plotting because i changed parameters of R functions
+g <- function(params) {
+  t <- params[1]
+  a1 <- params[2]
+  a2 <- params[3]
+  lam1 <- params[4]
+  lam2 <- params[5]
+  
+  seq1 <- 1:t # 1,2,...,theta
+  seq2 <- (t+1):length(x) # theta+1, theta+2, ... 112
+  mle_lam1 <- mean(x[seq1]) # use MLE for parameter to create envelope g
+  mle_lam2 <- mean(x[seq2]) 
+  return((1/112) * dgamma(lam1,shape=3,rate=a1) * dgamma(a1,shape=10,rate=10) * 
+                   dgamma(lam2,shape=3,rate=a2) * dgamma(a2,shape=10,rate=10)*
+           sum(dpois(x[seq1],mle_lam1,log=TRUE)) * sum(dpois(x[seq2],mle_lam2,log=TRUE))) 
+}
+
+# format data for plotting
+#all_func_vals <- rbind(cbind(rep("f",111),1:111,sapply(1:111,likelihood)),
+#                       cbind(rep("g",111),1:111,sapply(1:111,g))) %>% data.frame()
+#colnames(all_func_vals) <- c("Function","Theta","Functional Value")
+#all_func_vals$Theta <- as.numeric(all_func_vals$Theta)
+#all_func_vals$`Functional Value` <- as.numeric(all_func_vals$`Functional Value`)
+
+#ggplot() +
+#  geom_point(data=all_func_vals,mapping=aes(x=Theta,y=`Functional Value`,color=Function)) +
+#  ggtitle("Posterior Density (f) and Candidate Function (g) Final Iterate")
+
+
+# --> mcp library makes this really easy (literally does the whole problem), see https://lindeloev.github.io/mcp/articles/poisson.html
+```
+

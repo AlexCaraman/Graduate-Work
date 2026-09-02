@@ -1,0 +1,301 @@
+---
+title: "Stat 705 HW8"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+# 5.1
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW8 1.jpg")
+
+# 5.3
+Suppose the data $(x_1,...,x_7)$ are observed. Consider Bayesian estimation of 
+$\mu$ based on a $N(\mu, 3^2/7)$ likelihood for the minimally sufficient 
+$\bar{x}|\mu$ and a Cauchy(5,2) prior. \
+
+## a
+Using a numerical integration method of your choice, show that the 
+proportionality constant is roughly 7.84654. (Find $k$ such that  
+$\int k * (prior) * (likelihood) d\mu = 1$.)
+```{r,warning}
+options(scipen=99,digits=15)
+x <- c(6.52, 8.32, 0.31, 2.82, 9.96, 0.14, 9.64) 
+xbar <- mean(x) 
+likelihood <- function(mu) {dnorm(xbar, mean=mu,sd=sqrt(9/7))}
+prior <- function(mu) {dcauchy(mu,location=5,scale=2)} # 2/(pi*x^2-10*pi*x+29*pi)
+unfixed_posterior <- function(mu) {likelihood(mu)*prior(mu)}
+
+plot(x=seq(-10,20,by=0.1),y=unfixed_posterior(seq(-10,20,by=0.1)),
+     ylab='Non-Normalized Posterior',xlab='mu')
+
+prop_constant <- function(a,b,n,f){
+  h <- (b-a)/n # step length
+  nodes <- a + h*(0:(n-1)) 
+  f_vals <- h*f(nodes)
+  A <- sum(f_vals) # area approximation
+  # result of integral should be 1/7.84654 = ~0.127444708
+  # --> to show, 1/result = 7.84654
+  k <- 1/A
+  return(k)
+}
+# We can retain most of the density of the non-normalized posterior if we simply
+# truncate the region to (-10,20). The constant can be made more precise with
+# a wider interval. This also applies to the last part of the third problem
+k <- prop_constant(-10,20,256,f=unfixed_posterior)
+k
+```
+
+## b
+Using the value from (a), determine the posterior probability that 
+$2 \leq \mu \leq 8$ using the Riemann, trapezoidal, and Simpson’s rules over the 
+range of integration [implementing Simpson’s rule as in (5.20) by pairing 
+adjacent sub-intervals]. Compute the estimates until relative convergence within
+0.0001 is achieved for the slowest method. Table the results. How close are your 
+estimates to the correct answer of 0.99605? \
+```{r}
+# include k so distribution is valid
+posterior <- function(mu) {k*likelihood(mu)*prior(mu)} 
+
+riemann <- function(a,b,n,f,true){
+  h <- (b-a)/n # step length
+  nodes <- a + h*(0:(n-1)) 
+  f_vals <- h*f(nodes)
+  A <- sum(f_vals) # area approximation
+  if(true){
+    true_error <- abs(A - true)
+    return(list(Riemann_Area=A,True_Error=true_error))}
+  else{
+    return(A)}
+}
+
+trapezoidal <- function(a,b,n,f,true){
+  h <- (b-a)/n
+  nodes <- a + h*(1:(n-1)) # ** start from 1 to avoid double count ** 
+  f_vals <- h/2*f(a) # half the first
+  f_vals <- c(f_vals, h*f(nodes)) # "interior" nodes once
+  f_vals <- c(f_vals, h/2*f(b)) # half the last
+  A <- sum(f_vals) # area approximation
+  if(true){
+    true_error <- abs(A - true)
+    return(list(Trap_Area=A,True_Error=true_error))}
+  else{
+    return(A)}
+}
+
+simpson <- function(a,b,n,f,true){
+  h <- (b-a)/n
+  nodes <- a + h*(0:n)
+  f_vals <- rep(0,length(nodes))
+  for(i in 1:(n/2)){ 
+    f_vals[i] <- h/3 * f(nodes[2*i-1]) 
+    f_vals[i] <- f_vals[i] + 4*h/3* f(nodes[2*i])
+    f_vals[i] <- f_vals[i] + h/3* f(nodes[2*i+1])
+  }
+  A <- sum(f_vals) # area approximation
+  if(true){
+    true_error <- abs(A - true)
+    return(list(Simpson_Area=A,True_Error=true_error))}
+  else{
+    return(A)}
+}
+# for each function, sapply with various powers of n, tabulate all results
+
+n <- 2^(1:10)
+riemann_approx <- sapply(n, riemann, a=2, b=8, f=posterior,true=0.99605)
+colnames(riemann_approx) <- n
+riem_rel <- rep(0,length(n))
+riem_estimates <- unlist(riemann_approx[1,])
+for (i in 1:(length(n))){
+  error <- abs(1-riem_estimates[i]/riem_estimates[i-1])
+  riem_rel[i] <- error[1]
+}
+t(rbind(riemann_approx,Relative_Error=riem_rel))
+
+trap_approx <- sapply(n, trapezoidal, a=2, b=8, f=posterior,true=0.99605)
+colnames(trap_approx) <- n
+trap_rel <- rep(0,length(n))
+trap_estimates <- unlist(trap_approx[1,])
+for (i in 1:(length(n))){
+  error <- abs(1-trap_estimates[i]/trap_estimates[i-1])
+  trap_rel[i] <- error[1]
+}
+t(rbind(trap_approx,Relative_Error=trap_rel))
+
+
+simpson_approx <- sapply(n, simpson, a=2, b=8, f=posterior,true=0.99605)
+colnames(simpson_approx) <- n
+simp_rel <- rep(0,length(n))
+simp_estimates <- unlist(simpson_approx[1,])
+for (i in 1:(length(n))){
+  error <- abs(1-simp_estimates[i]/simp_estimates[i-1])
+  simp_rel[i] <- error[1]
+}
+t(rbind(simpson_approx,Relative_Error=simp_rel))
+```
+
+## c
+Find the posterior probability that $\mu\geq3$ in the following ways. Use the 
+transformation $u = e^{\mu}/(1 + e^{\mu})$, since the range of integration is 
+infinite. \
+i. Ignore the singularity at 1 and find the value of the integral using one or 
+more quadrature methods. \
+ii. Fix the singularity at 1 using one or more appropriate strategies, and find 
+the value of the integral. Compare your results. How close are the estimates to 
+the correct answer of 0.99086?
+```{r,warning=FALSE}
+# i.The function does not work if we ignore the singularity, it must be fixed. 
+# ii.
+f_u <- function(u){
+  mu <- log(u/(1-u))
+  du <- (u*(1-u))^(-1)
+  posterior(mu)*du
+}
+riem_approx2 <- sapply(n,riemann,a=exp(3)/(1+exp(3)),b=1,f=f_u, true=0.99086)
+colnames(riem_approx2) <- n
+t(riem_approx2)
+```
+
+## d
+Use the transformation $u = 1/\mu$, and obtain a good estimate for the integral 
+in part (c). \
+```{r}
+f_u2 <- function(u){
+  mu <- 1/u
+  du <- 1/u^2
+  posterior(mu) * du
+}
+riem_approx3 <- sapply(n,riemann,a=1e-7,b=1/3,f=f_u2, true=0.99086)
+colnames(riem_approx3) <- n
+t(riem_approx3)
+```
+
+# 5.6
+Suppose 10 i.i.d. observations result in $\bar{x}=47$. Let the likelihood for 
+$\mu$ correspond to the model $\bar{X}|\mu\sim N(\mu,50/10)$ and the prior for 
+$(\mu - 50)/8$ be Student’s t with 1 degree of freedom.\
+
+## a
+Show that the five-point Gauss–Hermite quadrature rule relies on the Hermite 
+polynomial $H_5(x) = c(x^5 - 10x^3 + 15x)$. \
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW8 3a.jpg") \
+Alternatively, using what is in the book, we have the following: \
+Using $p_o(x)=1$ and $p_1(x)=x$, \
+$p_5(x)=xp_4(x)-4p_3(x)=x(x^4-6x^2+3)-4(x^3-3x)=x^5-10x^3+15x$ \
+$p_4(x)=xp_3(x)-3p_2(x)=x(x^3-3x)-3(x^2-1)=x^4-6x^2+3$ \
+$p_3(x)=xp_2(x)-2p_1(x)=x(x^2-1)-2x=x^3-3x$ \
+$p_2(x)=xp_1(x)-p_0(x)=x^2-1$ \
+Where we instate c as a normalizing factor in front of the polynomial, giving
+the desired result.
+
+## b
+Show that the normalization of $H_5(x)$ [$\langle H_5(x), H_5(x)\rangle = 1$] 
+requires $c =1/\sqrt{120\sqrt{2\pi}}$. \
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW8 3b.jpg")
+
+## c
+Using your favorite root finder, estimate the nodes of the five-point 
+Gauss–Hermite quadrature rule. Recall that finding a root of $f$ is equivalent 
+to finding a local minimum of $|f|$. Plot $H_5(x)$ from -3 to 3 and indicate the 
+roots.\
+```{r}
+p5 <- function(x) 1/sqrt(120*sqrt(2*pi)) * (x^5-10*x^3+15*x)
+
+bisect <- function(bounds,f,eps=1e-05,max.iter=50){
+  lower <- bounds[1]
+  upper <- bounds[2]
+  root <- (upper+lower) / 2
+  it <- 1
+  while (it < max.iter & abs(f(root))> eps) {
+    # bisection algorithm 
+    if (f(lower)*f(root)<=0){upper <- root}
+    else{lower<-root}
+    root <- (upper + lower) / 2
+    it <- it + 1
+  }  
+  return(root)
+}
+# The root of 0 is trivial and thus will not be solved for
+# Using plot, try intervals (-3,-2), (-2,-1), (1,2), (2,3)
+starting_intervals <- list(c(-3,-2),c(-2,-1),c(1,2),c(2,3))
+solutions <- sapply(starting_intervals,bisect,f=p5)
+root_coords <- data.frame(roots=c(solutions,0),fval=c(p5(solutions),0))
+
+library(ggplot2)
+x_axis <- seq(-3,3,by=0.01)
+coords <- data.frame(x=x_axis,y=p5(x_axis))
+ggplot() +
+  geom_hline(yintercept=0) +
+  geom_line(data=coords, mapping=aes(x=x,y=y),color='blue') + 
+  geom_point(data=root_coords,mapping=aes(x=roots,y=fval),color='red') +
+  geom_label(data=root_coords,mapping=aes(x=roots,y=fval,label=roots),
+             label.size=.0005, nudge_x=.2, nudge_y=-0.15) +
+  ggtitle("H5(x)=c(x^5-10x^3+15x)")
+```
+
+## d
+Find the quadrature weights. Plot the weights versus the nodes. The normalizing 
+constant for $H_6(x)$ is $1/\sqrt{720\sqrt{2\pi}}$. \
+```{r}
+nodes <- c(solutions,0)
+nodes <- c(nodes[1],nodes[2],nodes[5],nodes[3],nodes[4])
+# substitute x-50 for x?
+p6 <- function(x) (x^6-15*x^4+45*x^2-15)/sqrt(720*sqrt(2*pi))
+p5prime <- function(x) (5*x^4-30*x^2+15)/sqrt(120*sqrt(2*pi))
+compute_weights <- function(node) {
+  c6 <- 1/sqrt(720*sqrt(2*pi))
+  c5 <- 1/sqrt(120*sqrt(2*pi))
+  -c6 / (c5*(p6(node) * p5prime(node)))
+}
+weights <- compute_weights(nodes)
+plot(data.frame(x=nodes,y=weights))
+```
+
+## e
+Using the nodes and weights for five-point Gauss–Hermite integration, estimate 
+the posterior variance of $\mu$. (Remember to account for the normalizing 
+constant in the posterior before taking posterior expectations.) \
+It should be noted that $\frac{\mu-50}{8}\sim t_{1df}$ means 
+$\mu \sim Cauchy(50,8)$ \
+
+$Var(\mu|\bar{x})=E(\mu^2|\bar{x})-[E(\mu|\bar{x})]^2$
+So, the posterior variance is \
+$\int_{-\infty}^{\infty}\mu^2f(\mu|\bar{x})d\mu - [\int_{-\infty}^{\infty}\mu f(\mu|\bar{x})d\mu]^2$ \
+where $f(\mu|\bar{x})$ is the posterior distribution. \
+To apply Gaussian quadrature, we will treat the integrals separately, and
+multiply each by $w(\mu)/w(\mu)$, where $w(\mu)=e^{-\mu^2/2}$. This gives the final 
+problem formulation \
+$\int_{-\infty}^{\infty}\frac{\mu^2f(\mu|\bar{x})}{e^{-\mu^2/2}}e^{-\mu^2/2}d\mu - [\int_{-\infty}^{\infty}\frac{\mu f(\mu|\bar{x})}{e^{-\mu^2/2}}e^{-\mu^2/2}d\mu]^2$ \
+We can define $f^*(\mu,k) = \frac{\mu^k f(\mu|\bar{x})}{e^{-\mu^2}}$, which gives
+us the desired form $\int_{-\infty}^{\infty}f^*(\mu)w(\mu)d\mu$ for quadrature.
+```{r}
+likelihood2 <- function(mu) dnorm(x=47,mu,sd=sqrt(5))
+prior2 <- function(mu) dcauchy(mu,location=50,scale=8)
+
+unfixed_posterior2 <- function(mu) likelihood2(mu) * prior2(mu)
+
+mu_vals <- seq(35,60,by=0.1) # bounds tightened by repeatedly plotting
+plot(mu_vals,unfixed_posterior2(mu_vals),
+     ylab="Non-normalized Posterior", xlab='mu')
+k2 <- prop_constant(-100,100,512,unfixed_posterior2) # call previous function
+
+posterior2 <- function(mu) k2*likelihood2(mu)*prior2(mu)
+center_of_mass <- max(posterior2(mu_vals))
+shift <- mu_vals[which(posterior2(mu_vals)==center_of_mass)]
+
+
+# We must shift the posterior by its mode, ~47.4, so that the roots do not 
+# evaluate the density way off in the tails, this has the effect of 
+# standardizing it so it is compatible with p5(x). In other words, the center of
+# mass should be centered around 0
+
+posterior_stand <- function(mu) k2*likelihood2(mu+shift)*prior2(mu+shift)
+# --> this is the corrected version of the posterior, centered around 0
+plot(seq(-4,4,0.1),posterior_stand(seq(-4,4,0.1)))
+
+fstar <- function(mu,k){
+  w <- exp(-(mu^2)/2)
+  mu^k * posterior_stand(mu) / w
+}
+
+post_var <- sum(weights*fstar(nodes,2))-(sum(weights*fstar(nodes,1)))^2
+cat('Posterior variance:', post_var)
+```

@@ -1,0 +1,75 @@
+---
+title: "Stat 705 HW2"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+Problem 1
+```{r}
+A <- matrix(c(1,6,3,9),nrow=2,ncol=2)
+B <- matrix(c(7,4,0,5),nrow=2,ncol=2)
+bigger1 <- rbind(cbind(A,B,A),cbind(B,A,B),cbind(A,A,B))
+bigger2 <- rbind(cbind(A,B),cbind(A,B),cbind(B,A),cbind(B,A))
+print(bigger1)
+print(bigger2)
+```
+
+Problem 2
+```{r}
+birthday_paradox <- function(n) {
+  xi <- 0
+  for (i in 1:n){ # run the experiment n times
+    bdays <- sample(1:365,23,replace=TRUE)
+    repeats <- any(duplicated(bdays)) 
+    if (repeats){xi<-xi+1} # increment if there are duplicates
+  }
+  return(xi/n)
+}
+# only 23 people needed for chance of shared birthday > 50%, as n -> inf
+birthday_paradox(100)
+birthday_paradox(1000)
+birthday_paradox(10000)
+```
+
+Problem 3
+```{r}
+set.seed(1)
+num_experiments <- 1000
+order_stat <- rep(0,num_experiments) # empty vector to be filled with order stat
+for (i in 1:num_experiments) {
+  rand_var1 <- rnorm(100,mean=4,sd=3)
+  x23 <- rand_var1[order(rand_var1)][23] # order returns indices, use as "subset"
+  order_stat[i] <- x23 # "append" vector of interest
+}
+cat('The mean of the 23rd order statistic is',mean(order_stat))
+cat('\nThe variance of the 23rd order statistic is',var(order_stat))
+```
+
+Problem 4
+```{r,warning=FALSE}
+set.seed(2)
+A_redux <- matrix(runif(n=600*600,min=0,max=1),nrow=600)
+A_redux[A_redux<0.9] <- 0
+A_redux[A_redux>0.9] <- 1
+
+start1 <- Sys.time()
+method1 <- eigen(A_redux)
+elapsed1 <- Sys.time() - start1
+
+library(Matrix)
+start2 <- Sys.time()
+B_redux <- Matrix(A_redux)
+elapsed2 <- Sys.time() - start2
+
+library(irlba)
+start3 <- Sys.time()
+singular_vecs <- irlba(A_redux)
+elapsed3 <-Sys.time() - start3
+
+cat('eigen() run-time:',elapsed1,'\nMatrix() run-time:',elapsed2, 
+    '\nirlba() run-time:',elapsed3)
+cat('\nMatrix() is the fastest, with irlba() taking about twice as long. eigen()
+      is significantly slower than either of the other two.')
+```
+

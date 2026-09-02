@@ -1,0 +1,435 @@
+---
+title: "HW5"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# 1-2
+The $nxn$ real-valued matrix A is said to be positive definite if it is 
+symmetric $A^T=A$, and for any non-zero vector $x, x^T Ax > 0$ \
+## i.
+Show that if A is a symmetric matrix, then A is positive definite if and only if 
+all eigenvalues of A are strictly positive.\
+
+Spectral theorem for symmetric matrices: if A is symmetric and has all 
+eigenvalues strictly positive, there exists an orthogonal matrix $Q$ s.t. 
+$A=Q^T\Lambda Q$, where $\Lambda$ is the diagonal matrix of eigenvalues. \
+Choose $x$ as any non-zero vector and define $y:=Qx\neq0$. \
+We also have $x^TAx=x^T(Q^T\Lambda Q)x=(x^TQ^T)\Lambda(Qx)=y^T\Lambda y$ \
+Since $\Lambda$ is a diagonal matrix, we have $\sum_{i=1}^n\lambda_iy_i^2>0$ \
+$y$ is non-zero, and we're given A has positive eigenvalues, so the above 
+statement holds. \
+
+## ii.
+If a matrix is positive definite, then show that it is invertible.\
+
+Since A is positive definite, we have $x^TAx>0, \forall x\neq0$. This means that
+A is full-rank and thus invertible because $Ax\neq0, \forall x\neq0$. Full-rank
+means the maximum number of linearly independent columns is n. Additionally, a
+positive definite matrix has only positive eigenvalues. The determinant of the 
+matrix can be calculated by taking the product of all eigenvalues, which of
+course gives a positive result. The non-zero (positive) determinant shows that
+the matrix is invertible. Given all $\lambda_i>0$, we have \
+$detA=\prod_{i=1}^n\lambda_i>0$
+
+## iii. 
+The function returns the original matrix as well so that the user can see it.
+This may not be desirable for massive matrices but can be easily removed by 
+returning the strings on their own. I implemented the negative definite check
+before the semi-definite check so that the conditionals were checked in the 
+correct order.
+```{r}
+options(scipen=999)
+MatDef <- function(A, tol=1e-06){
+  # Matrix input A, tol: how from 0 eigenvalue must be to be considered non-zero
+  # error if matrix not square and/or symmetric
+  nrows <- dim(A)[1]
+  ncols <- dim(A)[2]
+  if (nrows!=ncols){return('Matrix must be square!')}
+  if (!isSymmetric.matrix(A)){return('Matrix must be symmetric!')}
+  else{
+    eigenvals <- eigen(A)$values
+    near_zero <- abs(eigenvals) > tol # set eigenvalues near 0 to zero 
+    eigenvals[!near_zero] <- 0
+    
+    # All eigenvalues strictly > 0
+    if(sum(eigenvals > 0+tol)==ncols){return(list(A,'Positive definite'))}
+
+    # All eigenvalues are >= 0
+    if(sum(eigenvals >= 0)==ncols){return(list(A,'Positive semi-definite'))}
+    
+    # Both positive and negative eigenvalues
+    if(sum(eigenvals>0)!=0 && sum(eigenvals<0)!=0){return(list(A,'Indefinite'))}
+    
+    # All eigenvalues are strictly negative
+    if (sum(eigenvals< 0)==ncols){return(list(A,'Negative definite'))}
+        
+    # All eigenvalues are <= 0
+    if (sum(eigenvals<= 0)==ncols){return(list(A,'Negative semi-definite'))}
+
+  }
+}
+testmat1 <- matrix(c(1,2,3,4,5,6,100,0.5,8),3,3) 
+testmat2 <- matrix(c(1,1,1,1,1,1,1,1,1,1),5,2) 
+testmat3 <- matrix(c(7,2,2,1),2,2)
+testmat4 <- matrix(c(1,2,2,4),2,2)
+testmat5 <- matrix(c(0,0,0,1,0,0,1,0,0,1,0,0,1,0,0,0),4,4)
+testmat6 <- matrix(c(-1,0,0,0,-1,0,0,0,0),3,3)
+testmat7 <- matrix(c(-3,0,0,0,-5,0,0,0,-2),3,3)
+
+test_matrices <- list(testmat1,testmat2,testmat3,testmat4,testmat5,testmat6,testmat7)
+
+sapply(test_matrices,MatDef)
+```
+
+# 3-4
+Consider using Newton-Raphson to find the MLE in the setting where
+$X_i i.i.d. \sim Norm(\mu, \sigma^2)$, so that the parameters are 
+$\theta=(\mu, \sigma^2)$, both real. 
+
+## i. Compute Fisher information matrix
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW5 2i.jpg") 
+
+## ii. MLE via Fisher Scoring 
+$\bf{\theta}_{k+1}=\theta_k+[I(\theta_ k)]^{-1}\nabla l(\bf{\theta_k};\bf{X})$ \
+```{r}
+Gradmat<-function(x, f, eps = 1e-08){
+  # Calculate the difference-quotient approx gradient (matrix) of an arbitrary 
+  # input (vector) function "f" at "x"
+  dd = length(x)
+  aa = length(f(x))
+  epsmat = (diag(dd) * eps)/2
+  gmat = array(0, dim = c(aa, dd))
+  for(i in 1:dd){
+    gmat[, i] <- (f(x + epsmat[, i]) -
+    f(x - epsmat[, i]))/eps}
+  if(aa > 1) gmat else c(gmat)
+}
+
+# To compare with Fisher Scoring approach 
+Newt_Raph_MLE<-function(guess,f, max.iter=25, tol = 1e-05, eps=1e-06){
+  start <- Sys.time()
+  gradient <- function(x) Gradmat(x, f, eps)
+  hessian <- function(x) Gradmat(x, gradient, eps)
+  old <- guess
+  new <- old - solve(hessian(old), gradient(old))
+  it <- 1
+  while(it < max.iter & sqrt(sum((new - old)^2)) >tol){
+    old <- new
+    new <- old - solve(hessian(old), gradient(old))
+    it <- it + 1
+  }
+  runtime <- Sys.time() - start
+  list(Steps = it, Initial = guess, Estimate = new, Func_val = f(new),Time=runtime)
+}
+
+NR.FS <- function(theta,n,f,max.iter=25,tol=1e-05,eps=1e-06){
+  start <- Sys.time()
+  gradient <- function(x) Gradmat(x, f, eps)
+  initial <- theta
+  fisher_info <- matrix(c(n/2*theta[2]^2,0,0,2*n/(theta[2]^2)),2,2)
+  guess <- theta + solve(fisher_info,gradient(theta))
+  i <- 1
+  while (i < max.iter & sqrt(sum(guess-theta)^2)>tol){
+    theta <- guess
+    fisher_info <- matrix(c(n/theta[2]^2,0,0,2*n/(theta[2]^2)),2,2)
+    guess <- theta + solve(fisher_info,gradient(theta))
+    i <- i+1
+  }
+  runtime <- Sys.time() - start
+  list(Steps = i, Initial = initial, Estimate= c(guess),Func_val=f(guess),Time=runtime)
+}
+
+set.seed(1)
+x <- rnorm(n=100,mean=5,sd=2)
+ll <- function(theta) sum(log(dnorm(x,theta[1],theta[2])))
+fish_results <- NR.FS(c(6,1), n=100, ll) # initial guess for mean and sd
+
+newt_results <- Newt_Raph_MLE(c(6,1),ll)
+comparison <- rbind(fish_results,newt_results)
+comparison
+cat('\nInitial values:\n')
+comparison[,2]
+cat('Final Estimates:\n')
+comparison[,3]
+```
+
+
+# 5 Givens, Hoeting 2.5 
+There were 46 crude oil spills of at least 1000 barrels from tankers in U.S. 
+waters during 1974–1999.\
+$Y_i$: the number of spills in the ith year \
+$b_{i1}$: the estimated amount of oil shipped through US waters as part of
+US import/export operations in the ith year, adjusted for spillage in 
+international or foreign waters \
+$b_{i2}$: the amount of oil shipped through U.S. waters during domestic
+shipments in the ith year \
+Oil shipment amounts are measured in billions of barrels (Bbbl).
+The volume of oil shipped is a measure of exposure to spill risk. Suppose we use 
+the Poisson process assumption given by $Y_i|b_{i1},b_{i2}\sim Poisson(\lambda_i)$ 
+where $\lambda_i = \alpha_1b_{i1} + \alpha_2b_{i2}$. \
+$\alpha_1$: rate of spills per Bbbl oil shipped during import/export \
+$\alpha_2$: rate of spills per Bbbl oil shipped during domestic shipments 
+
+## a. and b.
+Derive the Newton–Raphson and Fisher Scoring updates for finding the MLEs of 
+$\alpha_1,\alpha_2$.\
+$Poi(\lambda_i)=Poi(\alpha_1b_{i1} + \alpha_2b_{i2})$ \
+$p(y;\alpha_1,\alpha_2)=\frac{(\alpha_1b_{i1} + \alpha_2b_{i2})^{y_i}e^{-\alpha_1b_{i1} - \alpha_2b_{i2}}}{y_i!}$\
+$L(\alpha)=\prod_{i=1}^n\frac{\lambda_i^{y_i}e^{-\lambda_i}}{y_i!}$ \
+$l(\alpha)=\sum_{i=1}^n[y_ilog(\lambda_i)-\lambda_i-log(y_i!)]$\
+$l(\alpha)=\sum_{i=1}^n[y_ilog(\alpha_1b_{i1} + \alpha_2b_{i2})-\alpha_1b_{i1} - \alpha_2b_{i2}-log(y_i!)]$ \
+$\frac{dl}{d\alpha_1}=\sum_{i=1}^n\frac{y_ib_{i1}}{\alpha_1b_{i1} + \alpha_2b_{i2}}-b_{i1}$ \
+$\frac{dl}{d\alpha_2}=\sum_{i=1}^n\frac{y_ib_{i2}}{\alpha_1b_{i1} + \alpha_2b_{i2}}-b_{i2}$ \
+I worked the Hessian/Fisher information out by hand after this. The previous two 
+lines give the gradient.\
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW5 3ab.jpg")
+
+```{r}
+# data
+b1 <- c(1.44,1.7,2.24,2.69,2.58,2.52,2.03,1.74,1.5,1.21,
+        1.14,1.08,1.44,1.58,1.68,1.99,2.06,1.95,2.14,2.38,
+        2.58,2.47,2.68,2.88,2.9,3.02)
+b2 <- c(0.22,0.17,0.15,0.2,0.59,0.64,0.84,0.87,0.94,0.99,
+        0.92,1,0.99,1.06,1,0.88,0.82,0.82,0.76,0.66,
+        0.65,0.59,0.56,0.51,0.42,0.44)
+y <- c(2,5,3,3,1,5,2,2,1,1,
+       1,2,3,4,2,2,3,2,1,0,
+       0,1,0,0,0,0)
+# Define objective function
+poi_log_like <- function(alpha){
+  sum(y*log(alpha[1]*b1+alpha[2]*b2)-alpha[1]*b1-alpha[2]*b2-log(factorial(y)))
+}
+```
+
+## c. 
+Implement the Newton–Raphson and Fisher scoring methods for this problem, 
+provide the MLEs, and compare the implementation ease and performance of the
+two methods. \
+```{r}
+NR.Pois <- function(alpha,max.iter=25, tol=1e-06){
+  start <- Sys.time()
+  history <- matrix(0,max.iter+1,2) # save values for plotting
+  initial <- alpha
+  history[1,] <- initial
+  gradient <- function(alpha) {
+    matrix(c(sum(y*b1/(alpha[1]*b1+alpha[2]*b2))-sum(b1),
+             sum(y*b2/(alpha[1]*b1+alpha[2]*b2))-sum(b2)))}
+  hessian <- function(alpha) {
+    matrix(c(-sum(b1^2*y/(alpha[1]*b1+alpha[2]*b2)),-sum(b1*b2*y/(alpha[1]*b1+alpha[2]*b2)),
+             -sum(b1*b2*y/(alpha[1]*b1+alpha[2]*b2)),-sum(b2^2*y/(alpha[1]*b1+alpha[2]*b2))),
+           2,2)}
+  guess <- alpha - solve(hessian(alpha),gradient(alpha))
+  i <- 1
+  while (i < max.iter & sqrt(sum(guess-alpha)^2)>tol){
+    alpha <- guess
+    guess <- alpha - solve(hessian(alpha),gradient(alpha))  
+    i <- i+1
+    history[i,] <- guess
+  }
+  # I'd like to do the following line, but have omitted it for the plots to work
+  # history <- history[1:i,] # keep only rows with iterates
+  runtime <- Sys.time() - start
+  list(Steps = i, Initial = initial, Estimate= c(guess),Time=runtime,hessian(guess),history)
+}
+newt_results2 <- NR.Pois(c(0.5,0.5))
+
+FS.Pois <- function(alpha,max.iter=25,tol=1e-06){
+  start <- Sys.time()
+  history <- matrix(0,max.iter+1,2) # save values for plotting
+  initial <- alpha
+  history[1,] <- initial
+  gradient <- function(alpha) {
+    matrix(c(sum(y*b1/(alpha[1]*b1+alpha[2]*b2))-sum(b1),
+             sum(y*b2/(alpha[1]*b1+alpha[2]*b2))-sum(b2)))}
+  fisher_info <- function(alpha) {
+    matrix(c(sum(b1^2/(alpha[1]*b1+alpha[2]*b2)),sum(b1*b2/(alpha[1]*b1+alpha[2]*b2)),
+             sum(b1*b2/(alpha[1]*b1+alpha[2]*b2)),sum(b2^2/(alpha[1]*b1+alpha[2]*b2))),
+           2,2)}
+  guess <- alpha + solve(fisher_info(alpha)) %*%  gradient(alpha)
+  i <- 1
+  while (i < max.iter & sqrt(sum(guess-alpha)^2)>tol){
+    alpha <- guess
+    guess <- alpha + solve(fisher_info(alpha)) %*%  gradient(alpha)
+    i <- i+1
+    
+    history[i,] <- guess
+  }
+  # I'd like to do the following line, but have omitted it for the plots to work
+  # history <- history[1:i,] # keep only rows with iterates
+  runtime <- Sys.time() - start
+  list(Steps = i, Initial = initial, Estimate= c(guess),Time=runtime,fisher_info(guess),history)
+}
+fish_results2 <- FS.Pois(c(0.5,0.5))
+
+comparison2 <- rbind(fish_results2,newt_results2)
+comparison2
+cat('\nInitial values:\n')
+comparison2[,2]
+cat('Final Estimates:\n')
+comparison2[,3]
+```
+The implementation is very similar, just with slightly different matrices and
+update rules. However, the results are extremely similar and appear to be the
+same regardless of the initial guess. Both algorithms are very fast in this 
+example, but fisher scoring is slightly faster and takes fewer steps.
+
+## d. 
+Estimate standard errors for the MLEs of $\alpha_1, \alpha_2$ \
+$\hat\alpha_{MLE}\rightarrow N(\alpha,I_n(\alpha)^{-1})$ \
+We need to invert the final fisher information matrix, then divide by n.
+```{r}
+cov_mat <- solve(fish_results2[[5]])
+alpha1_err <- sqrt(cov_mat[1,1])
+alpha2_err <- sqrt(cov_mat[2,2])
+cat('SE(Alpha1):',alpha1_err,'SE(Alpha2):',alpha2_err)
+```
+
+
+## e. 
+Apply the method of steepest ascent. Use step-halving backtracking as necessary.\
+Using code from lecture Notes-5.
+```{r}
+library(numDeriv)
+steepest_asc <- function(initial, f, step, max.iter=25, unitfac=F, tol = 1e-05, eps=1e-06){
+  # Function to implement Steepest-ascent. The unitfac condition indicates 
+  # whether or not the supplied step-length factor(s) multiply the gradient 
+  # itself, or the unit vector in the same direction.
+  history <- matrix(0,max.iter,2)
+  history[1,] <- initial
+  steps <- if(length(step) > 1) {step} else{rep(step, max.iter)}
+  i <- 1
+  oldpar <- initial
+  newstep <- grad(f,initial)
+  newstep <- if(unitfac){newstep/sqrt(sum(newstep^2))} else {newstep}
+  
+  ### use unit vector in gradient direction
+  newpar <- oldpar + steps[i] * newstep
+  while(i < max.iter & sqrt(sum((newpar-oldpar)^2))>tol) {
+    i <- i + 1
+    oldpar <- newpar
+    newstep <- grad(f,oldpar)
+    newstep <- if(unitfac) {newstep/sqrt(sum(newstep^2))} else {newstep}
+    newpar <- oldpar + steps[i] * newstep
+    history[i,] <- newpar
+    step <- step/2
+  }
+  list(Steps = i, Initial = initial, Final = newpar, Func_val = f(newpar),history)
+}
+steep_results <- steepest_asc(c(.5,.5),poi_log_like,0.01)
+print(steep_results)
+```
+
+## f. 
+Apply quasi-Newton optimization with the Hessian approximation update given in
+(2.49). Compare performance with and without step halving.\
+$M^{(t+1)}=M^{(t)}+c^{(t)}v^{(t)}(v^{(t)})^T$ \
+Utilizing code from Chapter2.R file available from textbook website. 
+```{r}
+quasi_newt <- function(x, g, g.prime) {## INITIAL VALUES
+  initial <- x 
+  M = Gradmat(x, g.prime, eps=1e-06)
+  itr = 25
+  epsilon = 1e-10
+  x.values = matrix(0,itr+1,2)
+  x.values[1,] = x
+  alpha.default = 1
+  alpha = alpha.default
+  
+  ## MAIN
+  for(i in 1:itr){
+        hessian.inv = solve(M)
+        xt = x - alpha*hessian.inv%*%g.prime(x)
+        # REDUCE ALPHA UNTIL A CORRECT STEP IS REACHED
+        while(g(xt) < g(x)){
+        		  alpha = alpha/2
+  		  xt = x - alpha*hessian.inv%*%g.prime(x)
+        }
+        x.values[i+1,] = xt
+        z = xt-x
+        y = g.prime(xt)-g.prime(x)
+        v = y-M%*%z
+        M.old = M
+        M = M-((M%*%z%*%t(M%*%z))/((t(z)%*%M%*%z)[1]))+
+             ((y%*%t(y))/((t(z)%*%y)[1]))
+        if(abs((t(v)%*%z)[1]) < epsilon){M = M.old}
+        alpha = alpha.default
+        x = xt
+  }
+  list(Steps=i,Initial=initial,Estimate=c(x),History=x.values)
+}
+gradfunc <- function(alpha) Gradmat(alpha, poi_log_like, eps=1e-06)
+qnewt_results <- quasi_newt(c(0.5,0.5),poi_log_like,gradfunc)
+print(qnewt_results)
+
+# Also, using the optim() function, allowing for half-stepping with the control
+# parameter, we get the same results. Note that the log-likelihood and gradient
+# needed to be negated since optim() minimizes by default
+
+ll_neg <- function(alpha){
+  -sum(y*log(alpha[1]*b1+alpha[2]*b2)-alpha[1]*b1-alpha[2]*b2-log(factorial(y)))
+}
+grad_neg <- function(alpha) {
+    matrix(c(-sum(y*b1/(alpha[1]*b1+alpha[2]*b2))+sum(b1),
+             -sum(y*b2/(alpha[1]*b1+alpha[2]*b2))+sum(b2))) }
+optim(c(0.5, 0.5), ll_neg, gr = grad_neg, method = "BFGS", hessian = TRUE, 
+      control = list(ndeps = c(0.5, 0.5)))$par
+```
+Performance is the exact same both with and without half-stepping, at least the
+results are the same. The method to test this was to remove the alpha=alpha/2
+line in the while loop of the above function.
+
+## g. 
+Construct a graph resembling Figure 2.8 that compares the paths taken by methods
+used in (a)–(f). Choose the plotting region and starting point to best 
+illustrate the features of the algorithms’ performance.
+```{r}
+# set up axes, functional value
+z = matrix(0,100,100)
+alpha1 = seq(0,1.1,length=100)
+alpha2 = seq(0,1.5,length=100)
+for(i in 1:100){for(j in 1:100){
+  z[i,j] = poi_log_like(c(alpha1[i],alpha2[j]))}}
+
+pois_newt_process <- newt_results2[[6]]
+pois_newt_process[18:26,1]<-pois_newt_process[17,1] # avoid subscript oob
+pois_newt_process[18:26,2] <- pois_newt_process[17,2]
+
+pois_fs_process <- fish_results2[[6]]
+pois_fs_process[13:26,1] <- pois_fs_process[12,1]
+pois_fs_process[13:26,2] <- pois_fs_process[12,2]
+
+steep_process <- steep_results[[5]]
+qnewt_process <- qnewt_results[[4]]
+
+itr <- nrow(steep_process)-1 # or qnewt_process, both 26
+contour(alpha1,alpha2,z,nlevels=20,drawlabels=FALSE,xlab='Alpha1',ylab='Alpha2')
+for(i in 1:itr){
+  # Newton-Raphson 
+  segments(pois_newt_process[i,1],pois_newt_process[i,2],pois_newt_process[i+1,1],
+  pois_newt_process[i+1,2],lty=2,col='red')
+  
+  # Fisher Scoring
+  segments(pois_fs_process[i,1],pois_fs_process[i,2],pois_fs_process[i+1,1],
+  pois_fs_process[i+1,2],lty=2,col='blue')
+  
+  # Steepest Ascent
+  segments(steep_process[i,1],steep_process[i,2],steep_process[i+1,1],
+  steep_process[i+1,2],lty=2,col='darkgreen')
+  
+  # Quasi-Newton
+  segments(qnewt_process[i,1],qnewt_process[i,2],qnewt_process[i+1,1],
+  qnewt_process[i+1,2],lty=2,col='brown')
+}
+```
+Newton-Raphson is in red, Fisher scoring in blue, Steepest Ascent in green, and
+Quasi-Newton in brown. \
+Newton-Raphson and Fisher scoring appear to be extremely similar, though the
+former takes a more direct path to the optimum. It appears that Newton-Raphson
+finds the optimal alpha1 and then updates alpha2 as its last steps, whereas
+Fisher scoring updates both simultaneously until it reaches convergence. Quasi-
+Newton is also very similar to the other two, but appears to "jut out" away from
+the optimum slightly more. Steepest ascent seems to miss the optimum entirely 
+over the allowed iterations, converging to fairly different estimates to the 
+other methods.

@@ -1,0 +1,437 @@
+---
+title: "Stat 705 HW10"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Problem 7.1
+## a
+Simulate 200 realizations from the mixture distribution in 
+$\delta N(7, 0.5^2) + (1 - \delta)N(10, 0.5^2)$ with 
+$\delta=0.7$. Draw a histogram of these data. \
+```{r,message=FALSE,warning=FALSE,out.width="80%",out.height="80%"}
+library(tidyverse)
+library(ggplot2)
+set.seed(95)
+d0 <- rbinom(200,1,0.7)
+sims <- d0*rnorm(200,7,0.5)+(1-d0)*rnorm(200,10,0.5)
+hist(sims, main="N(7,0.25) and N(10,0.25) Mixture")
+```
+
+## b
+Implement an independence chain MCMC procedure to simulate from the posterior
+distribution of $\delta$, using your data from part (a). \
+```{r,out.width="80%",out.height="80%"}
+n <- 100000
+x_vals1 <- NULL
+keep <- 1001:n # i.e. first 1000 values are the burn-in
+
+dist <- function(delta) {prod(delta*dnorm(sims,mean=7,sd=0.5) + 
+                               (1-delta)*dnorm(sims,mean=10,sd=0.5))} # likelihood
+proposal <- function(x) dbeta(x,10,5) # proposal density
+ratio <- function(xt,x){dist(x)*proposal(xt)/(dist(xt)*proposal(x))} # ratio, MH algorithm
+
+set.seed(95)
+x_vals1[1] <- rbeta(1,10,5)
+indy_chain_start <- Sys.time()
+for(i in 1:n){
+      xt <- x_vals1[i]
+      x <- rbeta(1,10,5) # generate from proposal
+      prob <- min(ratio(xt,x),1) # compute acceptance probability 
+      move <- rbinom(1,1,prob) # move or not move w.p. p
+      x_vals1[i+1] <- x*move + xt*(1-move) # move is 0 or 1, so next value is x or xt
+}
+indy_chain <- Sys.time() - indy_chain_start
+rm(indy_chain_start,xt,x,prob,move,i)
+x_vals1 <- x_vals1[keep]
+par(mfrow=c(1,2))
+hist(x_vals1,main=c("Sample Mean:",mean(x_vals1) %>% round(4)))
+plot(x_vals1,ylim=c(0,1),type="l",ylab="delta",xlab="t",main="Exploration Plot")
+```
+
+## c
+Implement a random walk chain with 
+$\delta^* = \delta^{(t)} + \epsilon,  \epsilon \sim Unif(-1,1)$ \
+```{r,out.width="80%",out.height="80%"}
+set.seed(95)
+log_like <- function(delta) {
+  sum(log(delta*dnorm(sims,7,.5)+(1-delta)*dnorm(sims,10,.5)))
+  }
+i <- 1
+rw_start <- Sys.time()
+p <- rep(0,n) # initial values
+p[1] <- rbeta(1,10,5)
+while (i < n) {
+  pnew <- p[i] + runif(1,-1,1)
+  if (pnew >= 0 & pnew <=1) {
+    p[i+1] <- pnew
+    R <- exp(log_like(p[i+1]) - log_like(p[i]))
+    if (R < 1){ 
+	    if(rbinom(1,1,R)==0){p[i+1] <- p[i]} # reset to previous value if binom 0
+    }
+    i <- i+1 # increment i only if delta is valid 
+	}
+}
+x_vals2 <- p
+rand_walk <- Sys.time() - rw_start
+rm(rw_start,i,p,R,pnew)
+x_vals2 <- x_vals2[keep]
+par(mfrow=c(1,2))
+hist(x_vals2,main=c("Sample Mean:",mean(x_vals2) %>% round(4)))
+plot(x_vals2,ylim=c(0,1),type="l",ylab="delta",xlab="t",main="Exploration Plot")
+```
+
+## d
+Reparameterize the problem letting $U = log[\delta/(1 - \delta)]$ and $U^* = u(t) + \epsilon$.
+Implement a random walk chain in U-space as in 
+$$\frac{f(logit^{-1}(u^*))*|J(u^*)|*g(u^{(t)}|u^*)}{f(logit^{-1}(u^{(t)}))*|J(u^{(t)})|*g(u^*|u^{(t)})}$$ \
+where $|J(u^*)|=\frac{1}{|J(\delta^*)|}$, and $logit(p)=log(\frac{p}{1-p})$
+```{r,out.width="80%",out.height="80%"}
+set.seed(95)
+u <- rep(0,n)
+u[1] <- runif(1,-1,1)
+p <- rep(0,n)
+p[1] <- exp(u[1])/(1+exp(u[1]))
+
+log_like <- function(delta,data) {
+  sum(log(delta*dnorm(data,7,.5)+(1-delta)*dnorm(data,10,.5)))
+  }
+
+uspace_start <- Sys.time()
+for (i in 1:(n-1)) {
+  u[i+1] <- u[i] + runif(1,-1,1)
+	p[i+1] <- exp(u[i+1])/(1+exp(u[i+1]))
+	R <- exp(log_like(p[i+1],sims) - log_like(p[i],sims)) * 
+	  (p[i+1]*(1-p[i+1]))/(p[i]*(1-p[i])) # Jacobian
+	if (R < 1){ # M-H algorithm
+	  if(rbinom(1,1,R)==0){ # don't move 
+		  p[i+1] <- p[i]
+		  u[i+1] <- u[i]
+		}
+	}
+}
+x_vals3 <- p
+
+uspace <- Sys.time() - uspace_start
+rm(uspace_start,i,u,p,R)
+x_vals3 <- x_vals3[keep]
+par(mfrow=c(1,2))
+hist(x_vals3,main=c("Sample Mean:",mean(x_vals3) %>% round(4)))
+plot(x_vals3,ylim=c(0,1),type="l",ylab="delta",xlab="t",main="Exploration Plot")
+```
+
+## e
+Compare the estimates and convergence behavior of the three algorithms.\
+```{r}
+run_times <- rbind(indy_chain,rand_walk,uspace)
+estimates <- rbind(mean(x_vals1),mean(x_vals2),mean(x_vals3))
+data.frame(Time=run_times, Estimate=estimates,Absolute_Error=abs(estimates-0.7))
+```
+The results can vary from run to run and across different seeds. In this 
+run the independence chain was the fastest, u-space the slowest, while random
+walk was the closest to the true value of $\delta$, independence chain the 
+furthest. The reason u-space takes slightly longer is probably due to there
+being more lines of code involved in the algorithm. In any case, all results are
+extremely comparable, and the paths all show good mixing.
+
+# Problem 7.2
+## a
+Implement a Metropolis–Hastings algorithm to simulate from 
+$\delta N(7, 0.5^2) + (1 - \delta)N(10, 0.5^2)$ with $\delta = 0.7$, using 
+$N(x^{(t)}, 0.01^2)$ as the proposal distribution. For each of three starting 
+values, $x^{(0)} = 0, 7, 15$, run the chain for 10,000 iterations. Plot the 
+sample path of the output from each chain. If only one of the sample paths was 
+available, what would you conclude about the chain? For each of the simulations, 
+create a histogram of the realizations with the true density superimposed on the 
+histogram. Based on your output from all three chains, what can you say about 
+the behavior of the chain? \
+```{r,warning=FALSE,out.width="80%",out.height="80%"}
+set.seed(95)
+mh_algo <- function(ini_mu,n=10000,burn=1000,delt=0.7,stdev=0.01){
+  # target function, proposal (iteratively updates), ratio for M-H algorithm
+  density <- function(x) delt*dnorm(x,mean=7,sd=0.5) + (1-delt)*dnorm(x,mean=10,sd=0.5)
+  proposal <- function(x,mu) dnorm(x,mu,sd=stdev)
+  ratio <- function(xt,x_star) density(x_star)*proposal(xt,mu=xt)/
+    (density(xt)*proposal(x_star,mu=xt))
+  
+  x_vals <- NULL
+  x_vals[1] <- rnorm(1,ini_mu,stdev) # initial value
+  for(i in 1:n){
+    xt <- x_vals[i] # proposed next value
+    x_star <- rnorm(1,xt,stdev) # generate from proposal with current mean
+    
+    # print(ratio(xt,x_star))
+    prob <- min(ratio(xt,x_star),1)
+    move <- rbinom(1,1,prob) # move or not move w.p. prob
+    # this is almost always moving, ratio is either close to 1 or greater than 1
+    x_vals[i+1] <- x_star*move + xt*(1-move) # move is 0 or 1, next value is xt or x
+  }
+  keep <- (burn+1):n
+  x_vals <- x_vals[keep]
+  
+  # for overlaying true density
+  d <- rbinom(n-burn,1,prob=delt)
+  true_vals <- d*rnorm(n-burn,7,0.5) + (1-d)*rnorm(n-burn,10,0.5)
+  all_values <- data.frame(x_vals,true_vals)
+  post_draws <- ggplot(all_values) +
+                  geom_histogram(aes(x=x_vals,y=..density..),bins=50) +
+                  geom_density(aes(x=true_vals),col = "red") +
+                  ggtitle("Sampled Values from N(7,0.25) and N(10,0.25) Mixture",
+                          paste("Initial Mean:",ini_mu,", n:",n,sep=" "))
+  # sample path
+  path <- ggplot(data=data.frame(x=x_vals,t=1:(n-burn))) +
+            geom_line(mapping=aes(x=t,y=x_vals)) +
+            ylim(c(-1,16)) + # kept constant to compare plots
+            ggtitle("Exploration Plot",
+                    paste("Initial Mean:",ini_mu,sep=" "))
+  return(list(Sample_Histogram=post_draws,Exploration_Plot = path))
+}
+mh_algo(ini_mu=0,n=10000,burn=1000)
+mh_algo(ini_mu=7,n=10000,burn=1000)
+mh_algo(ini_mu=15,n=10000,burn=1000)
+```
+
+If we saw any of the proposals alone, we'd conclude that the algorithm did not
+converge and we have not successfully sampled from the distribution. This is 
+because the standard deviation of the proposal distribution is very small, 
+meaning the algorithm is not exploring much outside its initial area. With much
+larger sample sizes, we may eventually expect the algorithm to reach better 
+regions, but this would likely require n's *many* magnitudes larger. Initial 
+$x^{(t)}$ of 7 appears to be the "best", but it is still a very poor fit. We see
+that each super-imposed density plot is a pretty poor fit.
+
+## b
+Change the proposal distribution to improve the convergence properties of the
+chain. Using the new proposal distribution, repeat part (a). \
+```{r,out.width="80%",out.height="80%"}
+# I specified a standard deviation parameter in the function, which allows
+# us to test different (normal) proposal distributions
+mh_algo(ini_mu=0,n=100000,burn=5000,stdev=1)
+mh_algo(ini_mu=7,n=100000,burn=5000,stdev=1)
+mh_algo(ini_mu=15,n=100000,burn=5000,stdev=1)
+```
+
+Exploration plots suggest the algorithm is rapidly jumping back and forth
+between the two modes (7 and 10) of the mixture density. It looks like a 
+$N(x^{(t)},1)$ proposal density over-samples the second mode. Increasing the 
+proposal standard deviation will eventually fill up around 7 in the true density, 
+but dramatically over-sample around 10. In any case, this is significantly better
+than the previous results. Interestingly, the plots seem to be extremely similar
+regardless of starting value. This is probably because the relatively large
+standard deviation allows the algorithm to "escape the bad areas" and get into
+the good ones (i.e. where the probability density actually lies)
+
+# Problem 7.5
+## a
+Data Summary and Plots \
+```{r,message=FALSE}
+cancer <- read_table("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/Data/datasets/breastcancer.dat")
+cancer$treatment <- factor(cancer$treatment)
+cancer$censored <- factor(cancer$censored)
+# Division by censoring
+table(cancer$censored) # 75.7%  were censored
+censored_cancer <- subset(cancer,censored==1)
+uncensored_cancer <- subset(cancer,censored==0)
+
+# Division by treatment (via plotting)
+table(cancer$treatment) # 51.4% received treatment
+
+## Censored recurrence times (Trt: treatment, Ctrl: control)
+ggplot(data=censored_cancer) +
+  geom_boxplot(mapping=aes(x=treatment,y=recurtime,color=treatment)) +
+  ylim(c(0,60)) + # keep same axes
+  ggtitle("Censored Time for Trt/Ctrl") 
+
+## Uncensored recurrence times
+ggplot(data=uncensored_cancer) +
+  geom_boxplot(mapping=aes(x=treatment,y=recurtime,color=treatment)) +
+  ylim(c(0,60)) +
+  ggtitle("Recurrence Time for Trt/Ctrl")
+```
+
+The first plot simply shows the number of months for which a patient was observed
+*without* recurrence, meaning the recurrence is known to *exceed* these values. 
+The second plot shows that the recurrence time for treatment and control groups 
+are largely pretty similar, but the treatment group has a lower median and 
+tighter inter-quartile range (albeit a higher maximum). This initially implies 
+that treatment *decreases* recurrence times, meaning the treatment is *not* 
+effective because the patient has cancer again sooner. **However**, the first 
+plot having the treatment group above the non-treatment group may have the 
+effect of "pulling" the second box plots upward, perhaps to a point where the 
+treatment group lies above the control group. Since we know patients in the
+first must have avoided recurrence for at least one more month, it is a matter of
+*how much* longer the recurrence was avoided for each respective group among 
+censored patients. If the treatment for the censored group leads to much longer 
+survival times, it could be that treatment *increases* recurrence times, leading 
+to the conclusion that hormone therapy is an effective treatment for cancer.
+
+## b
+Derive the conditional distributions necessary to implement the Gibbs sampler.\
+![]("C:/Users/jacma/OneDrive/school work/UMD/Stat 705 Computational Stats/HW Images/705 HW10 3b.jpg")
+
+## c
+Program and run your Gibbs sampler. Use a suite of convergence diagnostics to
+evaluate the convergence and mixing of your sampler. Interpret the diagnostics.\
+```{r}
+# a function which takes in values for the hyperparameters, initial guesses for
+# theta and tau, sample size and number to discard from beginning of algorithm
+gibbers <- function(hyper_parameters,theta_tau=c(1,1),n=10000,burn=1000,seed=0,data=cancer){
+  set.seed(seed)
+  
+  ### Data Values
+  treatment_group <- subset(data,data$treatment==1)
+  Hsum <- sum(treatment_group$censored==0) # non-censored treatment observations
+  trt_times <- sum(treatment_group$recurtime)
+  ctrl_group <- subset(data,data$treatment==0)
+  Csum <- sum(ctrl_group$censored==0) # non-censored treatment observations
+  ctrl_times <- sum(ctrl_group$recurtime)
+  
+  initial <- theta_tau # save initial guess
+  a <- hyper_parameters[1] # extract hyper_parameter values
+  b <- hyper_parameters[2]
+  c <- hyper_parameters[3]
+  d <- hyper_parameters[4]
+  
+  param_history <- matrix(0,nrow=n,ncol=2)
+  ### Gibbs Sampler
+  for (i in 1:n){
+    new_params <- theta_tau
+    new_params[1] <- rgamma(1, shape=a+1+Csum+Hsum, 
+                            rate=c+ctrl_times+new_params[2]*(d+trt_times)) 
+    new_params[2] <- rgamma(1, shape=b+Hsum+1, rate=new_params[1]*(d+trt_times))
+    param_history[i,] <- new_params
+    theta_tau <- new_params
+  }
+  param_history <- param_history[-(1:burn),] # remove burn-in values
+  
+  ### Summary Statistics
+  post_means <- colMeans(param_history)
+  post_sd <- apply(param_history,2,sd)
+  post_low_limit <- apply(param_history,2,quantile,probs=0.025)
+  post_high_limit <- apply(param_history,2,quantile,probs=0.975)
+  summary_statistics <- data.frame(Parameter=NA,
+                                   Mean=post_means,StdDev=post_sd,
+                                   Low95=post_low_limit,
+                                   High95=post_high_limit)
+  summary_statistics$Parameter[1] <- "Theta" # probably a much more elegant way 
+  summary_statistics$Parameter[2] <- "Tau"
+  
+  ### Plotting
+  param_history <- data.frame(param_history)
+  colnames(param_history) <- c("Theta","Tau")
+  theta_plot <- ggplot(data=param_history) +
+    geom_line(mapping=aes(x=1:(n-burn),y=Theta))+
+    xlab("t") + 
+    ggtitle("Posterior of Theta",
+            paste("Initial Value:",initial[1],
+                  ", Hyperparameters: ",a,b,c,d, sep=" "))
+  
+  tau_plot <- ggplot(data=param_history) +
+    geom_line(mapping=aes(x=1:1:(n-burn),y=Tau))+
+    xlab("t") + 
+    ggtitle("Posterior of Tau",
+            paste("Initial Value:",initial[2],
+                  ", Hyperparameters: ",a,b,c,d, sep=" "))
+  
+  return(list(all_values=param_history,
+              theta_path=theta_plot,
+              tau_path=tau_plot,
+              summary_stats=summary_statistics))
+}
+result1 <- gibbers(c(3,1,60,120))
+result1$theta_path
+result1$tau_path
+```
+The plots seem to show pretty good mixing, as neither get stuck at any 
+particular value (i.e. not moving). There also seems to be a somewhat reasonable 
+number of outliers (very large values) in either plot. A few of these are 
+expected due to the generation of thousands of random numbers.
+
+## d
+Compute summary statistics of the estimated joint posterior distribution, 
+including marginal means, standard deviations, and 95% probability intervals for 
+each parameter. Make a table of these results.\
+```{r}
+result1$summary_stats # the std deviations are very high, and wide confidence interval for tau
+```
+
+## e
+Create a graph which shows the prior and estimated posterior distribution for 
+$\tau$ superimposed on the same scale.\
+```{r,out.width="80%",out.height="80%"}
+# we should see some kind of shift between the prior and the posterior
+trt <- subset(cancer,cancer$treatment==1)
+theta_mean <- result1$summary_stats$Mean[1]
+prior <- rgamma(9000,shape=1+sum(trt$censored==0)+1,
+                rate=theta_mean*(120+sum(trt$recurtime)))
+
+tau_vals <- data.frame(post_value = result1$all_values$Tau,
+                       prior_value = prior) 
+ggplot(tau_vals) +
+  geom_density(aes(x=post_value),col='red') +
+  geom_density(aes(x=prior_value),col='blue') +
+  ggtitle("Prior of Tau (Blue) vs Posterior of Tau (Red)")
+```
+
+The posterior is in red, the prior in blue. We see that the posterior spread out
+the mass around 1 more widely than the prior, which is intuitive based on the 
+results we obtained. 
+
+## f
+Interpret the results. Specifically, what does your estimate of $\tau$ mean for 
+the clinical trial? Are the recurrence times for the hormone group significantly 
+different from those for the control group? \
+
+$Time_{T}\sim Exp(\tau \theta)$ and $Time_{C}\sim Exp(\theta)$. \
+With $\theta$ held constant, $\tau>1$ decreases the expected recurrence time
+(since the expected value of an exponential is 1 over its rate parameter 
+$\frac{1}{\tau\theta}$, which goes to 0 as $\tau \rightarrow \infty$), meaning 
+the treatment is ineffective because patients are returning *more* frequently. 
+If we had $\tau<1$, the expected recurrence time would increase, meaning 
+patients return *less* frequently, suggesting the treatment is *effective*. 
+($\frac{1}{\tau\theta} \rightarrow \infty$ as $\tau \rightarrow 0$).\
+$\tau=1$ would mean that there is no difference in recurrence time between the 
+treatment and control group. \
+To determine whether or not recurrence times are significantly different for the
+hormone group compared to the control group, the entire confidence interval of 
+alpha would have to be above or below 1. Above 1 can allow us to conclude that
+treatment significantly *decreases* recurrence times, while an interval below one 
+can allow us to conclude that treatment significantly *increases* recurrence 
+times. The situation in which recurrence times *decrease* is the situation that 
+implies the treatment did not work, because patients are expected to return with
+cancer more frequently. Thus, a confidence interval entirely above 1 suggests
+hormonal therapy is significantly *ineffective* and improving recurrence times.
+
+## g
+Sensitivity analysis: repeat your Gibbs sampler for values of the hyperparameters 
+that are half and double the original hyperparameter values. Provide a table of 
+summary statistics to compare your results. Based on your results, what 
+recommendations do you have for the drug company regarding the sensitivity of 
+your results to hyperparameter values?
+```{r}
+results2 <- gibbers(c(1.5,0.5,30,60)) # half hyperparameters
+results2$summary_stats
+results2$tau_path
+
+results3 <- gibbers(c(6,2,120,240)) # double hyperparameter
+results3$summary_stats
+results3$tau_path
+```
+
+Both halving and doubling the hyperparameters seems to have little effect on the
+results. All summary statistics for both parameters are very similar, and most
+notably, the 95% credible interval for $\tau$ contains 1, suggesting there is
+no signficant effect of hormone therapy. The sample paths also look very similar
+in shape and in mixing. \
+This outcome suggests that the data is robust to the hyperprior - one might say 
+that the data "dominates" the hyperprior, since the values of the hyperparameters
+have little to no effect on the results once data is seen. It should be noted
+that the mean and 95% interval for $\tau$ with the halved hyperparameters are 
+greater, but the conclusion would not differ as they all contain 1. \
+My recommendation might be to consider different prior and/or model formulations,
+since the value of the hyperparameters do not seem to have much of an effect on 
+the results. This could alter conclusions in some respect, and may be achieved 
+by the inclusion of additional hyperpriors or simply using a different set-up.
+One might also consider implementing Metropolis-within-Gibbs in set-ups where
+the resulting posterior is difficult to sample from.
