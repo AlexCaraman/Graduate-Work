@@ -1,0 +1,174 @@
+---
+title: "EPIB 741 HW3"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+# Data Prep
+```{r,echo=F,message=F,warning=F}
+library(ggplot2)
+library(tidyverse)
+library(haven)
+library(cowplot)
+library(survival)
+library(survminer) 
+# USING: https://rpkgs.datanovia.com/survminer/#:~:text=survminer:%20Survival%20Analysis%20and%20Visualization,most%20significant%20relation%20with%20survival.
+data1 <- read_sas("C:/Users/jacma/OneDrive/school work/UMD/EPIB 741 Association Models/bladder.sas7bdat")
+
+data1 %>% 
+  group_by(PATIENT) %>% 
+  summarize(meanTIME=mean(TIME),
+            meanSTATUS=mean(STATUS),
+            meanTREAT=mean(TREAT),
+            meanINIT=mean(INIT),
+            meanSIZE=mean(SIZE)
+            )
+
+# each patient is duplicated three times... why?
+# **specifying id=PATIENT in cox models gives same results as just using data2**
+
+data2 <- unique(data1)
+data2 %>% subset(data2$STATUS==1) # recurrences
+data2 %>% subset(data2$STATUS!=1) # censored
+data2$TIME %>% unique() %>% length() # 28 unique times, so 58 are tied
+```
+
+# Part A
+## Survival Analysis
+### 1. and 2. 
+Plot the Kaplan-Meier estimator of the survival function (survival curve) for 
+patients receiving thiotepa treatment. a) Estimate the probability of recurrence 
+free at 12 months, b) Estimate the median recurrence free survival time and its 
+95% confidence interval. \
+
+Test the null hypothesis that there is no overall difference between survival 
+curves for the two groups (thiotepa and placebo). Based on the test and the two 
+survival curves, state your conclusion from the log-rank test
+```{r,echo=F,message=F,warning=F}
+### 1 and 2
+survival.fit <- survfit(Surv(TIME, STATUS) ~ TREAT, id=PATIENT, data=data1)
+ggsurvplot(survival.fit, data=data1, 
+           risk.table=T, pval=T, conf.int=F, ncensor.plot=T,        
+           xlim=c(0,60), xlab="Time in months", break.time.by=6, 
+           ggtheme=theme_light(), risk.table.y.text.col=T, risk.table.y.text=T)
+
+### 1a. recurrence free at 12 months
+summary(survival.fit)
+# P(recurrence free at 12 months for TREATMENT group) = 58.15%
+# P(recurrence free at 12 months for CONTROL group) = 22.4%
+
+### 1b. median recurrence free survival time = 19, 95% CI (12, 33)
+print(survival.fit)
+
+# survfit(Surv(TIME, STATUS) ~ TREAT, data=data2) %>% print() # identical to above
+```
+
+## Cox Proportional Hazards Model
+### 3.
+Fit a Cox PH model using the treatment as the only independent variable and 
+report HR and its 95% confidence interval (CI). 
+```{r,echo=F,message=F,warning=F}
+# USING: https://www.sthda.com/english/wiki/cox-proportional-hazards-model
+ph.fit1 <- coxph(Surv(TIME, STATUS) ~ TREAT, id=PATIENT, data = data1)
+summary(ph.fit1)
+
+coxph(Surv(TIME, STATUS) ~ TREAT, data = data2) %>% summary # slightly different...attenuated
+```
+
+### 4. Check the PH assumption
+```{r,echo=F,message=F,warning=F}
+ggsurvplot(survival.fit, fun = "cloglog", data = data1)
+# KS test --- *can't seem to find a quick way to do this in R? unless below is the same*
+cox.zph(ph.fit1) %>% print()
+# ^ this can be applied to the other PH models but he did not ask for it
+
+ggsurvplot(survfit(Surv(TIME, STATUS) ~ TREAT, id=PATIENT, data=data2), 
+           fun = "cloglog", data = data2)
+# ^ the exact same as the data with duplicated rows
+```
+survival curves diverge, despite not crossing. log-log plots not parallel. test
+of residuals rejects the null hypothesis, we reject the null hypothesis, so we
+have increased concerns about the PH assumption NOT being met. 
+
+# Part B - Assume PH Assumption Met
+## 5.
+Assess the interaction effect of the treatment and the initial number of tumors
+```{r,echo=F,message=F,warning=F}
+ph.fit2 <- coxph(Surv(TIME, STATUS) ~ TREAT+TREAT*INIT, id=PATIENT, data = data1)
+(ph.results2 <- summary(ph.fit2))
+
+# interaction_effect <- function(covariate,model_results){
+  # HR = exp(-1.00074+0.04005*INIT)
+  # HR <- exp(model_results$coefficients[1,1]+
+    #           model_results$coefficients[1,3]*covariate)
+  # return(HR)
+# }
+# sapply(c(1:8),interaction_effect,model_results=ph.results2)
+
+cbind(`# Initial Tumors`=c(1:8),
+      HR=exp(ph.results2$coefficients[1,1]+
+              ph.results2$coefficients[1,3]*c(1:8)))
+```
+insignificant modifying effect, treatment effect became stronger (further from 1, 
+implying even greater survival for the treatment group). Hazard ratio increases 
+monotonically as # of initial tumors increases, matching intuition. More tumors 
+increases likelihood of recurrence. at 4 tumors, patients in treatment begin to 
+have a greater risk of recurrence than those in control
+
+## 6. 
+Suppose the size of the largest initial tumor is a potential confounder, does it 
+actually confound the above interaction effect?
+```{r,echo=F,message=F,warning=F}
+ph.fit3 <- coxph(Surv(TIME, STATUS) ~ TREAT+TREAT*INIT+SIZE, id=PATIENT, data = data1)
+ph.results3 <- summary(ph.fit3)
+(ph.results3$coefficients[4,2] - ph.results2$coefficients[3,2]) /
+  ph.results2$coefficients[3,2] * 100
+
+rm(survival.fit,ph.fit1,ph.fit2,ph.fit3,ph.results2,ph.results3)
+```
+change in estimate of about 8.75%, so largest initial tumor is probably not a 
+confound of the interaction effect, using a 10% threshold to denote large 
+changes
+
+
+# Part C - Assume PH Assumption Not Met
+## 7. 
+Use the extended Cox model to estimate the effect of the treatment on the 
+survival time, controlling for the size of the largest initial tumor as a 
+confounder. Do not try to assess the interaction effect.
+```{r,echo=F,message=F,warning=F}
+# log log plots appear to diverge between groups around 15 months in
+```
+
+## 8. 
+Assume that the size of the largest initial tumor violates the PH assumption, 
+use the stratified Cox model to estimate the effect of the treatment on the 
+survival time.
+```{r,echo=F,message=F,warning=F}
+ggplot(data1, aes(x = SIZE)) +
+  geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black") +
+  stat_bin(binwidth = 0.5, aes(label = ifelse(after_stat(count) == 0, NA, 
+                                              after_stat(count))),
+           geom = "text",vjust = -0.5) +
+  labs(x="Diameter of largest initial tumor (cm)",y="Number of occurences",
+       title="Distribution of Largest Initial Tumor Sizes")
+
+# where is the cutoff 
+survival.fit2 <- survfit(Surv(TIME, STATUS) ~ SIZE, id=PATIENT, data=data1)
+ggsurvplot(survival.fit2, data=data1, 
+           xlim=c(0,60), xlab="Time in months", break.time.by=6, 
+           ggtheme=theme_light())
+
+data1$SIZE_STRATA <- ifelse(data1$SIZE>1,1,0) # size 1 versus all else - most balanced
+data1$SIZE_STRATA2 <- ifelse(data1$SIZE>3,1,0) # >3 considered large https://bcan.org/facing-bladder-cancer/bladder-cancer-types-stages-grades/?gad_source=1&gad_campaignid=21909057091&gbraid=0AAAAADQO1ftuEC6EjRTGps14HP3eZihdt&gclid=CjwKCAjw-dfOBhAjEiwAq0RwIwWkQl1avGIQrYpztXmA6xMCdPaDeWC3Wu-Ql2ohx2wTaD7Ui0TyCBoCIoQQAvD_BwE
+
+ph.fit5 <- coxph(Surv(TIME,STATUS)~TREAT+strata(SIZE_STRATA), id=PATIENT, data=data1)
+summary(ph.fit5)$coefficients
+
+ph.fit6 <- coxph(Surv(TIME,STATUS)~TREAT+strata(SIZE_STRATA2), id=PATIENT, data=data1)
+summary(ph.fit6)$coefficients
+
+rm(survival.fit2,ph.fit5,ph.fit6)
+```
+Attenuated affect of treatment (increased, became closer to 1, but still 
+statistically significant) when stratifying by size of largest initial tumor. 
