@@ -1,0 +1,60 @@
+.title{
+  color:rgba(255, 0, 0, 0.785);
+  background-color: rgba(255, 255, 0, 0.911);
+  border:100 px solid black;
+  border-radius: 25px;
+  max-width: 47%;
+  font-size:64px;
+}
+
+.section{
+  color:rgba(255, 255, 0, 0.911);
+  background-color: black;
+  padding:1%
+}
+
+.paragraph{
+  padding-left: 1%;
+}
+
+.subheading{
+  padding-left: 1%;
+  color:black;
+  background-color: rgba(255, 255, 0, 0.911);
+  font-size:24px;
+}
+
+.tab {
+    overflow: hidden;
+    border: 1px solid #ccc;
+    background-color: #f1f1f1;
+  }
+  
+  /* Style the buttons that are used to open the tab content */
+  .tab button {
+    background-color: inherit;
+    float: left;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    padding: 14px 16px;
+    transition: 0.3s;
+  }
+  
+  /* Change background color of buttons on hover */
+  .tab button:hover {
+    background-color: #ddd;
+  }
+  
+  /* Create an active/current tablink class */
+  .tab button.active {
+    background-color: #ccc;
+  }
+  
+  /* Style the tab content */
+  .tabcontent {
+    display: none;
+    padding: 6px 12px;
+    border: 1px solid #ccc;
+    border-top: none;
+  }
