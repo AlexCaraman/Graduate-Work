@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Campus Energy Efficiency</title>
+    <link rel="stylesheet" href="./style.css">
+</head>    
+<img src="./umd.png" alt="University of Maryland, College Park Campus">
+<body> <!-- style="background-color: black;" -->
+    <h1 class="title">Campus Energy Efficiency</h1>
+    <h2 class="section">Introduction</h2>
+    <p class="paragraph" style="max-width:1350px;">
+        One of the most important aspects of any institution is its environmental
+        sustainability. As efforts continue to grow across the world, it is essential
+        for universities, such as the University of Maryland, College Park, to keep pace.
+        A key consideration for sustainability is the efficiency of energy consumption and
+        healthiness of carbon dioxide emissions. However, identifying areas for improvement
+        is often complex and time-consuming, requiring facility managers to
+        sort through large amounts of data and reconcile various factors. This interface aims 
+        to expedite and simplify this process by compiling several dashboards, allowing users
+        to quickly gain an understanding of previously unorganized data while analyzing the 
+        effect of several confounds on energy efficiency. 
+    </p>
+    <p class="paragraph" style="max-width:1350px;">    
+        The page is navigated by scrolling through the sections organized by the 
+        corresponding operative tasks. Each visualization is accompanied with a description 
+        tab which provides the user with background and parameter information, chart explanation,
+        and reminders for interactivity features. Such features allow the user to hover over marks to 
+        identify specific buildings, filter buildings individually or by type, and specify ranges for 
+        energy efficiency metrics. These options provide flexibility to simplify the visualizations. Also,
+        many charts utilize pages that can be flipped through as a convenient way of sorting the data, a 
+        process that simultaneously controls for the aforementioned confounds. These features provide an efficient 
+        means for facility managers to identify buildings requiring renovation or additional conservational
+        measures. It is easily extendable to external data sets with information at the building level, though this
+        working model uses Tableau's back-end servers to host the data. 
+    </p>
+
+    <h2 class="section">Energy Consumption and Performance by Building Type</h2>
+    <p class="paragraph" style="max-width:1350px;">
+        This set of visualizations provides a multi-angle view of energy consumption and 
+        performance across the UMD campus building portfolio, segmented by building type. 
+        EUI difference is perhaps the most important metric from the data. Calculated as the 
+        difference between the EPA benchmark EUI and actual EUI, positive values indicate a 
+        building is performing well, while negative values suggest the opposite. This provides 
+        an intuitive color encoding later on.
+    </p>
+    <div class="tab">
+        <button class="tablinks" onclick="infoTabs(event, 'Viz1')">Visuals</button>
+        <button class="tablinks" onclick="infoTabs(event, 'Desc1')">Description</button>
+    </div>
+    <div id="Viz1" class="tabcontent">
+        <!--added device = desktop parameter-->
+        <div class='tableauPlaceholder' id='viz1745940021152' style='position: relative'><noscript><a href='#'><img alt='TYPE DASH 3 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;TYPEDASH3&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='device' value='desktop'/><param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='UMDCo22025&#47;TYPEDASH3' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;TYPEDASH3&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1745940021152');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else { vizElement.style.width='80%';vizElement.style.height='1277px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';                    vizElement.parentNode.insertBefore(scriptElement, vizElement);                </script>
+    </div>
+    <div id="Desc1" class="tabcontent">
+        <p style="max-width:1350px;">
+            <h4>Charts</h4>
+            <li style="max-width:1350px;">Treemap (Top Left – Relative Energy Consumption Across Buildings):
+                This treemap visualizes individual buildings as proportional rectangles 
+                sized by total energy use. Larger blocks represent higher consumers. 
+                While specific building labels are limited to major contributors for 
+                clarity, users can hover over any segment to see detailed metrics. This 
+                layout helps identify energy-intensive buildings that may require 
+                investigation or intervention.
+                </li>
+            <li style="max-width:1350px;">Box Plot (Top Right – Energy Performance by Building Type):
+                This chart shows the difference between each building’s actual Energy 
+                Use Intensity (EUI) and the benchmark value expected for its type.
+                EUI (Energy Use Intensity) is a standard metric representing a building’s 
+                energy use per square foot per year, typically expressed in kBtu/ft².
+                Negative values in the plot indicate buildings that outperform benchmarks 
+                (use less energy than expected), while positive values show underperformance. 
+                This helps detect systemic inefficiencies by type. Outliers are visualized but 
+                not labeled to reduce clutter—hover for detailed insight.
+                </li>
+            <li style="max-width:1350px;">Bar Charts (Bottom – Average and Total Energy by Building Type):
+                These bar charts summarize energy use 1) Average Total Energy compares 
+                typical energy demand within each building type. 2)	Total Energy reflects 
+                cumulative use, highlighting where institutional consumption is 
+                concentrated.
+                </li>
+            <h4>Why Interactivity Matters</h4>
+            <p style="max-width:1350px;">Due to the dense nature of these datasets, not all building marks are 
+            labeled by default to maintain visual readability. However, all charts are 
+            interactive—hovering over any element reveals detailed tooltips with 
+            building names, values, and performance insights.</p>   
+        </p>    
+    </div>
+
+    <h2 class="section">Analyzing the Effect of Building Age</h2>
+    <p class="paragraph" style="max-width:1350px;">
+        This section explores how building age relates to energy efficiency and carbon 
+        impact across different building types at UMD. By connecting temporal 
+        characteristics with energy performance, these visualizations help prioritize 
+        which buildings should be targeted for retrofits or operational improvements.
+    </p>
+    <div class="tab">
+        <button class="tablinks" onclick="infoTabs(event, 'Viz2')">Visuals</button>
+        <button class="tablinks" onclick="infoTabs(event, 'Desc2')">Description</button>
+    </div>
+    <div id="Viz2" class="tabcontent">
+        <!--added device = desktop parameters-->
+        <div class='tableauPlaceholder' id='viz1746151220183' style='position: relative'><noscript><a href='#'><img alt='AGE TYPE DASH 2 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;AGETYPEDASH2&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='device' value='desktop'/><param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='UMDCo22025&#47;AGETYPEDASH2' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;AGETYPEDASH2&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1746151220183');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else { vizElement.style.width='100%';vizElement.style.height='877px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';                    vizElement.parentNode.insertBefore(scriptElement, vizElement);                </script>
+        <div class='tableauPlaceholder' id='viz1745940144756' style='position: relative'><noscript><a href='#'><img alt='AGE TYPE DASH 1 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;AGETYPEDASH1&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='device' value='desktop'/><param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='UMDCo22025&#47;AGETYPEDASH1' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;AGETYPEDASH1&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1745940144756');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else { vizElement.style.width='100%';vizElement.style.height='727px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';                    vizElement.parentNode.insertBefore(scriptElement, vizElement);                </script>
+    </div>
+    <div id="Desc2" class="tabcontent">
+        <p style="max-width:600px;">            
+            <h4>Charts</h4>
+            <li style="max-width:1350px;">
+                Scatterplots (Top – Year Built vs Total CO₂ Emissions):
+                These charts show the total annual CO₂ emissions per building plotted 
+                against the year of construction. Each point is colored by EUI difference
+                (benchmark minus actual), allowing for simultaneous interpretation of age, 
+                emissions, and performance. A building type selector and interactive 
+                legend allow for narrowing the view to specific facility categories. The 
+                first version isolates one building type at a time, while the second 
+                aggregates across all types for comparison. This helps identify 
+                high-impact older buildings, as well as newer buildings that may still 
+                be underperforming.
+            </li>
+            <li style="max-width:1350px;">
+                Dot Matrix Chart (Bottom – EUI Performance vs Building Age and Type): 
+                This matrix-style visualization uses color and vertical alignment to 
+                represent EUI performance across building types and construction decades.
+                Each circle represents a building, positioned by year built and color-coded 
+                by EUI benchmark difference (orange = worse than benchmark, blue = better).
+                The interactive filters allow the user to isolate specific building names, 
+                types, or performance ranges. This visual is particularly useful for spotting 
+                systemic inefficiencies tied to specific time periods or facility functions.
+            </li>
+            <h4>Why Interactivity Matters</h4>
+            <p style="max-width:1350px;">To reduce clutter, building labels are not shown by default. However, 
+            hovering over any data point will reveal detailed information including the 
+            building name, total emissions, year built, and performance score. Users can 
+            filter by building type, performance threshold, or individual buildings using 
+            the control panel on the right.</p>
+        </p>    
+    </div>
+
+    <h2 class="section">Energy Patterns Over Time</h2>
+    <p class="paragraph" style="max-width:1350px;">
+        This section provides time-based visual insights into monthly energy consumption 
+        at UMD, both at the portfolio and building-type levels. The goal is to uncover 
+        usage seasonality, performance anomalies, and relative contributions across years.
+    </p>
+    <div class="tab">
+        <button class="tablinks" onclick="infoTabs(event, 'Viz3')">Visuals</button>
+        <button class="tablinks" onclick="infoTabs(event, 'Desc3')">Description</button>
+    </div>
+    <div id="Viz3" class="tabcontent">
+        <!--added device = desktop parameters-->
+        <h3 class="subheading">Total Energy</h3>
+        <div class='tableauPlaceholder' id='viz1745941143502' style='position: relative'><noscript><a href='#'><img alt='TS DASH 1 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;TSDASH1&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='device' value='desktop'/> <param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='UMDCo22025&#47;TSDASH1' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;TSDASH1&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1745941143502');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else { vizElement.style.width='100%';vizElement.style.height='827px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';                    vizElement.parentNode.insertBefore(scriptElement, vizElement);                </script>
+        <h3 class="subheading">Average Energy</h3>
+        <div class='tableauPlaceholder' id='viz1745942032833' style='position: relative'><noscript><a href='#'><img alt='TS DASH 2 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;TSDASH2&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='device' value='desktop'/><param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='UMDCo22025&#47;TSDASH2' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;TSDASH2&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1745942032833');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else { vizElement.style.width='100%';vizElement.style.height='777px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';                    vizElement.parentNode.insertBefore(scriptElement, vizElement);                </script>
+        <h3 class="subheading">Building-Level Energy</h3>
+        <div class='tableauPlaceholder' id='viz1746152412783' style='position: relative'><noscript><a href='#'><img alt='TS DASH 3 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;TSDASH3&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='device' value='desktop'/><param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='UMDCo22025&#47;TSDASH3' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;TSDASH3&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1746152412783');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else { vizElement.style.width='100%';vizElement.style.height='1027px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';                    vizElement.parentNode.insertBefore(scriptElement, vizElement);                </script>
+    </div>
+    <div id="Desc3" class="tabcontent">
+        <p class="paragraph" style="max-width:600px;">
+            <h4>Charts</h4>
+            <li style="max-width:1350px;">
+                The top chart visualizes total campus-wide monthly energy consumption 
+                with a smoothed moving average overlay to reveal seasonal and long-term 
+                patterns. The second chart disaggregates these trends by building type 
+                (e.g., Labs, Offices, Classrooms), allowing users to see how each category 
+                contributes to total energy use over time. These views help highlight 
+                periods of peak demand, seasonal fluctuations, and differences in stability 
+                between building types.
+            </li>
+            <li style="max-width:1350px;">
+                Stacked Bar Chart (Middle – Average Monthly Energy):
+                This chart shows the monthly average energy use for each building type, 
+                stacked by color. The consistent height of lab bars reflects their 
+                dominance in energy consumption, while other types show steadier, 
+                lower-level contributions. Comparing months and years side by side 
+                allows for identifying anomalous usage spikes or dips across time.
+            </li>
+            <li style="max-width:1350px;">
+                Bump Chart (Bottom – Ranking of Average Monthly Energy):
+                This visual ranks building types by their monthly average energy use. It 
+                emphasizes changes in position over time (e.g., if Residential overtakes Office 
+                during a particular season). Flat lines indicate stability; sudden jumps 
+                or drops in rank may signal operational or environmental changes worth 
+                exploring.
+            </li>
+            <li style="max-width:1350px;">
+                Multi-Line Chart (Last – Monthly Energy per Building with EUI Performance):
+                Focused on the “Lab” category, this chart displays monthly energy profiles for 
+                individual buildings. Each line is color-coded by EUI performance (benchmark 
+                minus actual), with warmer tones indicating worse-than-expected performance.
+                This visual enables users to identify poorly performing buildings that consume 
+                high energy consistently or show erratic seasonal variation. Filters on the 
+                right allow users to isolate specific buildings, adjust EUI ranges, and explore 
+                year-by-year behavior.
+            </li>
+            <h4>Why Interactivity Matters</h4>
+            <p style="max-width:1350px;">These visuals are interactive: hover over any point or line to view precise 
+            values, and use filters (by year, UMD type, building name, or performance 
+            range) to narrow the focus. Building labels are intentionally hidden in 
+            dense charts to avoid clutter but can be revealed on demand. Particularly
+            notable is the ability to filter monthly energy range in the last section so
+            that details can be seen, considering that energy ranges vary significantly 
+            based on building type.</p>
+        </p>  
+    </div>
+
+    <h2 class="section">Factoring in Renovation Costs</h2>
+    <p class="paragraph" style="max-width:1350px;">
+        This section analyzes how renovation investments relate to energy performance 
+        across different building types. By examining Energy Use Intensity (EUI) 
+        differences alongside renovation costs, the dashboard supports value-based
+        decision-making for energy retrofits.
+    </p>
+    <div class="tab">
+        <button class="tablinks" onclick="infoTabs(event, 'Viz4')">Visuals</button>
+        <button class="tablinks" onclick="infoTabs(event, 'Desc4')">Description</button>
+    </div>
+    <div id="Viz4" class="tabcontent">
+        <!--added device = desktop parameter-->
+        <div class='tableauPlaceholder' id='viz1746150246883' style='position: relative'><noscript><a href='#'><img alt='RENOVATION DASH 3 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;RENOVATIONDASH2_1&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='device' value='desktop'/><param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='UMDCo22025&#47;RENOVATIONDASH2_1' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;UM&#47;UMDCo22025&#47;RENOVATIONDASH2_1&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1746150246883');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='1000px';vizElement.style.height='827px';} else { vizElement.style.width='100%';vizElement.style.height='1227px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';                    vizElement.parentNode.insertBefore(scriptElement, vizElement);                </script>
+    </div>
+    <div id="Desc4" class="tabcontent">
+        <p style="max-width:600px;">
+            <h4>Charts</h4>
+            <li style="max-width:1350px;">
+                Rectangle Area Chart (Top Left – Proportion of Renovation Cost by Building Type):
+                This chart shows the distribution of total renovation costs across UMD 
+                building categories. It highlights which types (e.g., Labs, Offices) are 
+                receiving the largest share of investment.
+            </li>
+            <li style="max-width:1350px;">
+                Dot Plot (Top Right – EUI Performance vs Renovation Cost by Type):
+                This scatterplot plots each building’s EUI difference (benchmark minus 
+                actual) against its renovation cost, color-coded by building type. It 
+                reveals how much has been spent on each facility and whether that 
+                investment corresponds with better (or worse) energy performance. This 
+                chart is helpful for identifying high-investment buildings that still 
+                underperform — critical for evaluating the return on energy-focused 
+                renovations.
+            </li>
+            <li style="max-width:1350px;">
+                Scatterplot (Bottom – EUI Difference vs Log Renovation Cost): Focused on 
+                buildings classified as “Other,” this plot uses a log scale for renovation 
+                costs to better distinguish lower-cost projects. Each point represents a 
+                building and is shaded by EUI performance. The combination of 
+                log-transformed cost and performance differential helps isolate 
+                outliers: buildings that have spent significantly but still fall below 
+                benchmarks (or vice versa).
+            </li>
+            <h4>Why Interactivity Matters</h4>
+            <p style="max-width:1350px;">Users can filter by UMD Type and individual buildings, and hover over any 
+            point to view the exact EUI difference and cost. The bottom slider allows 
+            narrowing the range of EUI performance values for more focused analysis. </p>
+        </p>    
+    </div>
+    <br>
+    <a style="padding:1%;" target="_blank" href="https://public.tableau.com/app/profile/alex.caramanico/vizzes">Tableau Dashboards</a>
+    <br>
+    <p style="padding:1%";> 2025 Alex Caramanico, Bahereh Vojdani, Benjamin Knight, Wooje Chang</p>
+    </body>
+<script src="./main.js"></script>
+</html>
