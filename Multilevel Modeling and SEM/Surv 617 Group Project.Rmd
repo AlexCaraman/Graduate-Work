@@ -1,0 +1,918 @@
+---
+title: "Surv 617 Group Project"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+# Overview
+## The Survey
+### Size
+
+* excluded institutional populations, such as persons in hospitals, hotels,
+barracks camps, hostels, and prisons
+* 629 clusters: 211 urban, 418 rural
+* 26 households from each cluster (ended up a bit short of expected total)
+* 16,312 households selected
+* 15,907 occupied 
+* 15,705 interviewed, overall response rate = 99%. 
+
+Aged 15-49 are eligible for interview (*these files not in report*) \\
+
+* In the interviewed households, 15,699 women 15,254 completed, response rate = 97%. 
+* In the 50% of households of households selected for the male questionnaire, 
+6,367 men 5,763 completed, response rate = 91%.
+
+### Questionnaires:
+-Household: \\
+  age, sex, marital status, education, relationship to household head,
+  Parents’ survival status for <18, disability status for 5+
+  source of drinking water, type of toilet facilities, floor materials
+  ownership of various durable goods, and ownership and use of mosquito nets.
+-Woman’s: (*this and all following files not used in report*) \\
+  age, education, media exposure, Birth history and childhood mortality,
+  Knowledge and use of family planning methods, Fertility preferences (antenatal, 
+  delivery, and postnatal care),Breastfeeding and infant feeding practices,
+  Vaccinations and childhood illnesses, Marriage and sexual activity, Women’s 
+  work and husband’s background characteristics, Other health issues, Adult 
+  mortality,including maternal mortality, Female genital cutting, Early childhood 
+  development, Malaria, Domestic violence
+-Man’s: \\
+  similar to womens, less reproductive info
+-Biomarker: \\
+  height and weight, anaemia tests, malaria tests, request for urine tests
+-Micronutrient: \\
+  anthropometric measurements, anaemia and malaria test results, and haematocrit 
+  results for women and to document the outcome of venous blood collection 
+  procedures and, in the relevant subset, the time for each step in the vitamin 
+  A relative dose response test.
+-Fieldworkers:
+  self-administered, basic info (people working the survey)
+  
+## The Project
+### Resources
+
+* Data, Documentation: 
+https://drive.google.com/drive/u/1/folders/1pE95hLbjKLqq7TxFdXj0HwwAcqCx7iIz
+* Project Report:
+https://www.overleaf.com/project/690d456c18e5aa3efcbdd9a4
+* Google Doc
+https://docs.google.com/document/d/1ts9Y1K_-uJ0UG1LI4pLNA6WkHsEVZklJihBx-RPYI3M/edit?tab=t.0
+* GitHub
+https://github.com/acforrester/SURV_621_Project
+* Variable Codes
+file:///C:/Users/jacma/OneDrive/school%20work/UMD/Surv%20617/Group%20Project/Variable%20Codes.pdf
+
+### Goals/Ideas:
+
+* Use the wealth index variable (constructed using PCA of household assets and 
+  amenities) as outcome variable, see if wealth is clustered across regions 
+  and/or place of residence (urban/rural/semi-urban) 
+* Tanzania case study, ideally would be able to apply to other developing countries
+* Policy implications: 
+  * evidence of significant wealth clustering --> advise govts to target 
+    interventions/policies that address regional inequalities.
+  * no evidence of clustering, then the wealth differences could be more driven 
+    by household level (L1) factors so policymakers can focus on improving 
+    resource use and resource distributions at the household level.
+* See if model can be used to improve district-level wealth estimates from the DHS. 
+  Using covariates such as size and composition, rural/urban, and labor force 
+  status --> unit-level small area model could produce estimates
+  
+# Coding 
+## Load Packages
+```{r,warning=F,message=F}
+library(tidyverse)
+library(haven)
+
+library(ggplot2)
+library(ggsurvey)
+library(cowplot)
+
+library(lme4)
+library(glmnet)
+library(rstatix) # for Cramer's V
+library(Hmisc) # for weighted std deviation
+library(survey)
+library(srvyr)
+library(stargazer) # for examining output
+```
+
+## Data Loading and Cleaning
+```{r,warning=F,message=F}
+tanzania_1 <- read_dta("C:/Users/jacma/OneDrive/school work/UMD/Surv 617/Group Project/TZHR81FL.DTA",
+                       col_select = c(
+                         hv001,   # cluster number (PSU)
+                         hv002,   # household number
+                         hv005,   # household sample weight
+                         hv009,   # number of usual members 
+                         hv022,   # sampling strata
+                         hv024,   # region
+                         hv025,   # type of place of residence (urban/rural)
+                         hv201,   # source of drinking water (99:missing)
+                         hv205,   # type of toilet facility (99:missing)
+                         hv206,   # sharing of toilet (*this is electricity (9:missing)*)
+                         hv213,   # main floor material (*hv208=tv*) (99:missing)
+                         hv217,   # relationship structure
+                         hv219,   # sex of household head (9:missing)
+                         hv220,   # age of household head (9:missing)
+                         hv221,   # phone (*hv246 is actually livestock*) (9:missing)
+                         hv226,   # type of cooking fuel (99:missing)
+                         hv247,   # has bank account (9:missing)
+                         hv270,   # wealth index (combined)
+                         hv271,   # wealth index (continuous)
+                         hv270a,  # wealth index (rural/urban adjusted)
+                         shreg2, # mainland/Zanzibar
+                         hv106_01)# education of household head (9:missing)
+) %>% mutate(hv005 = hv005 / 1e6)  
+
+colnames(tanzania_1) <- c("ea","house_id","hh_weight","num_members","sampling_strata",
+                          "region","residence","water","toilet","electric","floor",
+                          "hh_struct","hh_sex","hh_age","phone","cooking","bank",
+                          "wealth_ind_q","wealth_ind","wealth_ind_adj","govt",
+                          "hh_educ")
+tanzania_1 <- tanzania_1[,-2]
+
+# grouping of categorical variables (recode water, toilet to safe/unsafe)
+tanzania_1$water_improved <- case_when(
+  tanzania_1$water %in% c(11, 12, 13, 14, 21, 31, 41, 51, 61, 62, 71) ~ "Improved",
+  tanzania_1$water %in% c(32, 42, 43, 96)                             ~ "Unimproved")
+  # where do 72, 73 go? "satchet water" - 10 homes, "water kiosk/domestic points" - 12 homes
+  # 10,20,30,40 not actually in data 
+tanzania_1$toilet_improved <- case_when(
+  tanzania_1$toilet %in% c(11, 12, 13, 14, 15, 21, 22, 23) ~ "Improved",
+  tanzania_1$toilet %in% c(31, 41, 42, 43, 95, 96) ~ "Unimproved")
+  # where does 24 go? "pit latrine with slab (not washable)" - 3423 homes
+  # 10,20,30 not actually in data
+
+# fix factor names
+vars <- c("hh_educ", "water", "toilet", "floor", "cooking","wealth_ind_q", 
+          "wealth_ind_adj", "residence","region", "hh_struct", "govt")
+for (v in vars) {
+  lbls <- attr(tanzania_1[[v]], "labels")
+  tanzania_1[[v]] <- factor(tanzania_1[[v]],
+                            levels = lbls,
+                            labels = names(lbls))
+}
+rm(vars,lbls,v)
+
+# any renaming of factor levels goes here (basically just for improving visuals/tables)
+levels(tanzania_1$hh_educ) <- c("none/early","primary","secondary","higher", "don't know")
+
+# calculated / engineered features
+ages <- read_dta("C:/Users/jacma/OneDrive/school work/UMD/Surv 617/Group Project/TZHR81FL.DTA",
+                 col_select =c(hv105_01:hv105_56))
+tanzania_1$dep_ratio <- apply(ages,1,
+                              function(row){
+                                100 * sum(row %in% c(0:14,65:99))/sum(row %in% 15:64)
+                                })
+rm(ages) 
+
+tanzania_1$dep_ratio2 <- tanzania_1$dep_ratio
+tanzania_1$dep_ratio <- pmin(tanzania_1$dep_ratio, 100) # fix dividing by 0 issue
+# this is weird...only 723 are dividing by 0. 5761 are being truncated to 100
+tanzania_1$dep_ratio2[tanzania_1$dep_ratio2==Inf] <- NA # do this instead?
+
+# survey design
+DHSdesign <- tanzania_1 %>% as_survey_design(ids=ea,
+                                        weights=hh_weight,
+                                        strata=sampling_strata,
+                                        nest=TRUE)
+```
+
+## Missing Data Analysis 
+```{r,warning=F,message=F}
+apply(tanzania_1,2,function(col){sum(is.na(col))}) # NAs only for variable recodes
+
+MISSING = FALSE
+if (MISSING){
+  # missing may be encoded as 9 or 99 (*found none*)
+  apply(tanzania_1[,c(5,6,7,13,14,19)],2,function(col){sum(col==9)})
+  apply(tanzania_1[,c(8,9,11,12)],2,function(col){sum(col==99)})
+  library(visdat)
+}
+rm(MISSING)
+
+### compare rows with NA to remaining data
+tanzania_1$missing_info <- case_when(
+  !(tanzania_1$water_improved %>% is.na()) & 
+    !(tanzania_1$toilet_improved %>% is.na()) ~ "Neither", # 12262
+  tanzania_1$water_improved %>% is.na() & 
+    tanzania_1$toilet_improved %>% is.na() ~ "Both", # only 2
+  tanzania_1$water_improved %>% is.na() ~ "Water Quality", # only 20
+  tanzania_1$toilet_improved %>% is.na() ~ "Toilet Quality") # 3421
+#tanzania_1$missing_info %>% table()
+
+tanzania_1$nan_dep <- ifelse(tanzania_1$dep_ratio2 %>% is.na(), "Yes","No")
+
+PLOT_MISSING <- TRUE
+if (PLOT_MISSING){
+  ### compare dependent variable across missingness state
+  dependent <- list()
+  dependent[[1]] <- ggplot(tanzania_1) +
+    geom_density(mapping=aes(x=wealth_ind,group=missing_info,fill=missing_info),
+                 alpha=0.4) +
+    labs(title="Distribution of wealth index according to missingness")
+  # definitely some differences here, but consider sample size
+  
+  dependent[[2]] <- ggplot(tanzania_1) +
+    geom_boxplot(mapping=aes(y=wealth_ind,group=govt,fill=govt)) +
+    theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+    facet_wrap(~missing_info) + 
+    labs(title="Dispersion of Wealth Index across govt regions",
+         subtitle="based on which variables are missing")
+  # no clear differences
+
+  dependent[[3]] <- ggplot(tanzania_1) +
+    geom_boxplot(mapping=aes(y=wealth_ind,group=region,fill=region)) +
+    theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+    facet_wrap(~missing_info) + 
+    labs(title="Dispersion of Wealth Index across named regions",
+         subtitle="based on which variables are missing")
+  # no clear differences
+  
+  dependent[[4]] <- ggplot(tanzania_1) +
+    geom_boxplot(mapping=aes(y=wealth_ind,group=region,fill=region)) +
+    theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+    facet_wrap(~nan_dep) + 
+    labs(title="Dispersion of Wealth Index across named regions",
+         subtitle="Dependency Ratio 2 Missing or Not") 
+  # much narrower range for missing, to be expected
+  
+  ### compare spread of cts variables
+  independent <- list()
+  independent[[1]] <- ggplot(tanzania_1) +
+    geom_histogram(mapping=aes(x=num_members),bins=30,stat='count') +
+    facet_wrap(~missing_info) + 
+    labs(title="Distribution of # Members",
+         subtitle="based on which variables are missing")
+  # no clear differences, low sample sizes for "both" and "neither"
+
+  independent[[2]] <- ggplot(tanzania_1) +
+    geom_histogram(mapping=aes(x=hh_age),bins=30) +
+    facet_wrap(~missing_info) + 
+    labs(title="Distribution of household head age")
+  # household head age may be a little more flatly distributed when toilet_improved
+  # is missing, but I don't think there's anything intuitive here
+  
+  independent[[3]] <- ggplot(tanzania_1) +
+    geom_histogram(mapping=aes(x=dep_ratio),bins=30) +
+    facet_wrap(~missing_info) + 
+    labs(title="Distribution of dependency ratio")
+  # not obvious, this dependency ratio calculation may be problematic as well
+  
+  independent[[4]] <- ggplot(tanzania_1) +
+    geom_histogram(mapping=aes(x=num_members),bins=30,stat='count') +
+    facet_wrap(~nan_dep) + 
+    labs(title="Distribution of # Members",
+         subtitle="Dependency ratio NA?")
+  # pretty similar shape, again sample size
+
+  independent[[5]] <- ggplot(tanzania_1) +
+    geom_histogram(mapping=aes(x=hh_age),bins=30) +
+    facet_wrap(~nan_dep) + 
+    labs(title="Distribution of household head age",
+         subtitle="Dependency ratio NA?")
+  # **very clear difference, missing dep_ratio2 may be related to older hh heads**
+  
+  missing_plots <- list(Dependent_Var=dependent,
+                        Independent_Vars=independent)
+}
+if (exists("missing_plots")) {
+  print(missing_plots)
+  rm(missing_plots,dependent,independent)} 
+
+tanzania_1$missing_info <- NULL
+tanzania_1$nan_dep <- NULL
+
+rm(MISSING,PLOT_MISSING)
+```
+
+## Exploratory Data Analysis
+Variables in data frame but not explored in detail in this section include the
+following, where (O) means they were included in some old analysis: phone, 
+electric, wealth_ind_adj, wealth_ind_q (O). There are of course *many* other
+variables which may be of use in the DHS, both within the household file and by 
+compiling individual-level information (IR, MR) in a manner similar to how 
+dependency ratio was calculated. 
+### Statistics
+#### Categorical Variables
+```{r,warning=F,error=F,message=F}
+apply(tanzania_1[,c(5:12,14:17,19:23)],2,table) # tables should sum to 15705 (unique houses)
+
+## Cross-tabs to look at relationship between wealth quintile and categorical variables
+xtabs(~region+wealth_ind_q,data=tanzania_1) # %>% heatmap(Colv=NA,Rowv=NA)
+xtabs(~govt+wealth_ind_q,data=tanzania_1) # %>% heatmap(Colv=NA,Rowv=NA)
+xtabs(~water+wealth_ind_q,data=tanzania_1)# heatmap(Colv=NA,Rowv=NA)
+xtabs(~hh_struct+wealth_ind_q,data=tanzania_1) # %>% heatmap(Colv=NA,Rowv=NA)
+xtabs(~toilet+wealth_ind_q,data=tanzania_1)# %>% heatmap(Colv=NA,Rowv=NA)
+xtabs(~cooking+wealth_ind_q,data=tanzania_1)# %>% heatmap(Colv=NA,Rowv=NA)
+xtabs(~bank+wealth_ind_q,data=tanzania_1)# %>% heatmap(Colv=NA,Rowv=NA)
+xtabs(~residence+wealth_ind_q,data=tanzania_1)# %>% heatmap(Colv=NA,Rowv=NA)
+
+xtabs(~wealth_ind_adj+wealth_ind_q,tanzania_1) # see where the adjustments were made, most people were moved into higher wealth brackets. 'middle' was essentially gutted
+
+cramer_v(tanzania_1$wealth_ind_q,tanzania_1$wealth_ind_adj) # suspected collinearity
+cramer_v(tanzania_1$electric,tanzania_1$bank) # suspected collinearity
+cramer_v(tanzania_1$toilet,tanzania_1$water)
+cramer_v(tanzania_1$toilet,tanzania_1$cooking)
+cramer_v(tanzania_1$water,tanzania_1$cooking)
+
+cramer_v(tanzania_1$water_improved,tanzania_1$toilet_improved) 
+# ^ suspected collinearity, but actually not much
+```
+
+#### Continuous Variables
+```{r}
+## summarize cts variables - means, var, by region/other categories
+summary(tanzania_1[,c(3,13,18,24,25)]) # unweighted summary
+weighted_summary <- DHSdesign %>%
+  dplyr::summarize(
+    num_members = survey_mean(num_members, na.rm = TRUE, vartype = "se"), # or "var"?
+    hh_age = survey_mean(hh_age, na.rm = TRUE, vartype = "se"),
+    wealth_ind = survey_mean(wealth_ind, na.rm = TRUE, vartype = "se"),
+    dep_ratio = survey_mean(dep_ratio, na.rm = TRUE, vartype = "se"),
+    dep_ratio2 = survey_mean(dep_ratio2, na.rm = TRUE, vartype = "se")
+  )
+rbind(Min=cbind(min(tanzania_1$num_members),min(tanzania_1$hh_age),
+                min(tanzania_1$wealth_ind),min(tanzania_1$dep_ratio),
+                min(tanzania_1$dep_ratio2,na.rm=T)),
+      Mean=weighted_summary[1,c(1,3,5,7,9)] %>% unlist() %>% round(3),
+      Max=cbind(max(tanzania_1$num_members),max(tanzania_1$hh_age),
+                max(tanzania_1$wealth_ind),max(tanzania_1$dep_ratio),
+                max(tanzania_1$dep_ratio2,na.rm=T)),
+      StdErr=weighted_summary[c(2,4,6,8,10)] %>% unlist() %>% round(3))
+rm(weighted_summary)
+
+regional_summary <- tanzania_1 %>% # summary statistics by region, unweighted
+  group_by(region) %>%
+  dplyr::summarize(
+    mean_wealth = mean(wealth_ind),
+    std_wealth = sd(wealth_ind),
+    mean_members=mean(num_members),
+    mean_head_age=mean(hh_age),
+    mean_dep_ratio=mean(dep_ratio),
+    mean_dep_ratio2=mean(dep_ratio2,na.rm=T)) %>% 
+  arrange(desc(mean_wealth))
+regional_summary %>% View()
+
+regional_summary_wt <- tanzania_1 %>% # summary statistics by region, weighted
+  group_by(region) %>%
+  dplyr::summarize(
+    mean_wealth = weighted.mean(wealth_ind,hh_weight),
+    std_wealth = wtd.var(wealth_ind,hh_weight) %>% sqrt(),
+    mean_members=weighted.mean(num_members,hh_weight),
+    mean_head_age=weighted.mean(hh_age,hh_weight),
+    mean_dep_ratio=weighted.mean(dep_ratio),
+    mean_dep_ratio2=weighted.mean(dep_ratio2,na.rm=T)) %>% 
+  arrange(desc(mean_wealth))
+regional_summary_wt %>% View()
+
+govt_summary <- tanzania_1 %>% # summary statistics by govt region, unweighted
+  group_by(govt) %>%
+  dplyr::summarize(
+    mean_wealth = mean(wealth_ind),
+    std_wealth = sd(wealth_ind),
+    mean_members=mean(num_members),
+    mean_head_age=mean(hh_age),
+    mean_dep_ratio=mean(dep_ratio),
+    mean_dep_ratio2=mean(dep_ratio2,na.rm=T)) %>% 
+  arrange(desc(mean_wealth))
+govt_summary %>% View()
+
+govt_summary_wt <- tanzania_1 %>% # summary statistics by govt region, weighted
+  group_by(govt) %>%
+  dplyr::summarize(
+    mean_wealth = weighted.mean(wealth_ind,hh_weight),
+    std_wealth = wtd.var(wealth_ind,hh_weight) %>% sqrt(),
+    mean_members=weighted.mean(num_members,hh_weight),
+    mean_head_age=weighted.mean(hh_age,hh_weight),
+    mean_dep_ratio=weighted.mean(dep_ratio),
+    mean_dep_ratio2=weighted.mean(dep_ratio2,na.rm=T)) %>% 
+  arrange(desc(mean_wealth))
+govt_summary_wt %>% View() 
+# could also do the above grouping by other categorical variables - visualizations do this
+```
+
+### Visualizations (to be saved in single object where possible)
+#### Univariate
+```{r}
+# distributions of continuous random variables
+univariate <- plot_grid(ggplot(tanzania_1) +
+                          geom_histogram(mapping=aes(x=num_members),bins=30) +
+                          labs(title="Distribution of # Members"),
+                        ggplot(tanzania_1) +
+                          geom_histogram(mapping=aes(x=hh_age),bins=40) +
+                          labs(title="Distribution of Household-Head Age"),
+                        ggplot(tanzania_1) +
+                          geom_histogram(mapping=aes(x=dep_ratio),bins=30) +
+                          labs(title="Distribution of Dependency Ratio"),
+                        ggplot(tanzania_1) +
+                          geom_histogram(mapping=aes(x=dep_ratio2),bins=30) +
+                          labs(title="Distribution of Dependency Ratio 2"),
+                        ggplot(tanzania_1) +
+                          geom_histogram(mapping=aes(x=wealth_ind),bins=60) +
+                          labs(title="Distribution of Wealth Index (cts)",
+                               x="Wealth Index",
+                               y="Count") +
+                          theme(axis.text = element_text(size = 12)),nrow=3)
+```
+
+#### Dispersion of Wealth - Location
+```{r,warning=F}
+# how the spread of wealth varies according to location (regional variables)
+location <- list()
+location[[1]] <- ggplot(tanzania_1) +
+  geom_boxplot(mapping=aes(y=wealth_ind,group=govt,fill=govt)) +
+  theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+  labs(title="Dispersion of Wealth Index across govt regions",y="Wealth Index")
+
+location[[2]] <- ggplot(tanzania_1) +
+  geom_density(mapping=aes(x=wealth_ind,fill=govt),alpha=0.4) +
+  labs(title="Distribution of Wealth Index (cts)")
+
+location[[3]] <- ggplot(tanzania_1) +
+  geom_boxplot(mapping=aes(y=wealth_ind,group=govt,fill=govt)) +
+  facet_wrap(~bank) + # or electric, or cluttered water, toilet, cooking 
+  theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+  labs(title="Dispersion of Wealth Index across govt regions",subtitle="bank or no bank",
+       y="Wealth Index")
+
+location[[4]] <- ggplot(tanzania_1) +
+  geom_boxplot(mapping=aes(y=wealth_ind,group=region,fill=region)) +
+  theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+  labs(title="Dispersion of Wealth Index across named regions",y="Wealth Index")
+
+location[[5]] <- ggplot(tanzania_1) +
+  geom_density(mapping=aes(x=wealth_ind,fill=residence),alpha=0.4) +
+  labs(title="Distribution of Wealth Index (cts)",subtitle="by residence type",y="Wealth Index")
+```
+
+#### Dispersion of Wealth - Household Facilities
+```{r,warning=F}
+# how the distribution of wealth varies according to household facilities and amenities 
+# (e.g. water, toilet, banking)
+facilities <- list()
+facilities[[1]] <- ggplot(tanzania_1) +
+  geom_boxplot(mapping=aes(y=wealth_ind,group=water,fill=water)) +
+  theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+  labs(title="Dispersion of Wealth Index", subtitle="Across types of water sources",y="Wealth Index")
+
+facilities[[2]] <-plot_grid(ggplot(tanzania_1 %>% na.omit()) +
+                              geom_boxplot(mapping=aes(y=wealth_ind,
+                                                       group=water_improved,
+                                                       fill=water_improved)) +
+                              theme(axis.text.x = element_blank(),
+                                    axis.ticks.x = element_blank(),
+                                    legend.position="none") +
+                              labs(title="Dispersion of wealth",
+                                   subtitle="by water quality",y="Wealth Index"),
+                            ggplot(tanzania_1 %>% na.omit()) +
+                              geom_density(mapping=aes(x=wealth_ind,
+                                                       group=water_improved,
+                                                       fill=water_improved),alpha=0.4) +
+                              theme(axis.text.x = element_blank(),
+                                    axis.ticks.x = element_blank()) +
+                              labs(title="Distribution of wealth",
+                                   subtitle="by water quality",y="Wealth Index"))
+facilities[[3]] <- ggplot(tanzania_1) +
+  geom_boxplot(mapping=aes(y=wealth_ind,group=cooking,fill=cooking)) +
+  theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+  labs(title="Dispersion of Wealth Index",
+       subtitle="Across types of cooking fuel",y="Wealth Index")
+
+facilities[[4]] <- ggplot(tanzania_1) +
+  geom_boxplot(mapping=aes(y=wealth_ind,group=toilet,fill=toilet)) +
+  theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+  labs(title="Dispersion of Wealth Index",
+       subtitle="Across toilet types",y="Wealth Index")
+
+facilities[[5]] <-plot_grid(ggplot(tanzania_1 %>% na.omit()) +
+                              geom_boxplot(mapping=aes(y=wealth_ind,
+                                                       group=toilet_improved,
+                                                       fill=toilet_improved)) +
+                              theme(axis.text.x = element_blank(),
+                                    axis.ticks.x = element_blank(),
+                                    legend.position="none") +
+                              labs(title="Dispersion of wealth",
+                                   subtitle="by toilet quality",x="Wealth Index"),
+                            ggplot(tanzania_1 %>% na.omit()) +
+                              geom_density(mapping=aes(x=wealth_ind,
+                                                       group=toilet_improved,
+                                                       fill=toilet_improved),alpha=0.4) +
+                              theme(axis.text.x = element_blank(),
+                                    axis.ticks.x = element_blank()) +
+                              labs(title="Distribution of wealth",
+                                   subtitle="by toilet quality",x="Wealth Index"))
+
+facilities[[6]] <- ggplot(tanzania_1) +
+  geom_density(mapping=aes(x=wealth_ind,fill=factor(bank)),alpha=0.4) +
+  scale_fill_discrete(labels=c("No","Yes")) + 
+  labs(title="Distribution of Wealth Index (cts)",subtitle="Bank account or not",
+       x="Wealth Index",fill="bank account")
+```
+
+#### Dispersion of Wealth - Household Characteristics
+```{r,warning=F}
+# how the distribution of wealth varies according to characteristics of household, 
+# e.g. sex and education of household head, relationship structure
+characteristics <- list()
+characteristics[[1]] <- ggplot(tanzania_1) +
+  geom_density(mapping=aes(x=wealth_ind,group=factor(hh_sex),fill=factor(hh_sex)),alpha=0.4) +
+  scale_fill_discrete(labels=c("Male","Female")) +
+  labs(title="Dispersion of Wealth Index by sex of household head",
+       x="Wealth Index",fill="sex")
+
+characteristics[[2]] <- ggplot(tanzania_1) +
+  geom_boxplot(mapping=aes(y=wealth_ind,group=hh_educ,fill=hh_educ)) +
+  theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+  labs(title="Dispersion of Wealth Index by education level of household head",
+       y="Wealth Index",fill="Highest Education")
+
+characteristics[[3]] <- plot_grid(ggplot(tanzania_1) +
+                                    geom_density(mapping=aes(x=wealth_ind,fill=hh_educ),
+                                                 alpha=0.4) +
+                                    guides(fill="none") + 
+                                    labs(title="Distribution of Wealth Index (cts)",
+                                         subtitle="by education of HH head",
+                                         x="Wealth Index"),
+                                  ggplot(tanzania_1) +
+                                    geom_histogram(mapping=aes(x=wealth_ind,fill=hh_educ),
+                                                   bins=30) +
+                                    labs(title="Distribution of Wealth Index (cts)",
+                                         subtitle="by education of HH head",
+                                         x="Wealth Index",fill="Highest Education"))
+
+characteristics[[4]] <- ggplot(tanzania_1) +
+  geom_boxplot(mapping=aes(y=wealth_ind,group=hh_struct,fill=hh_struct)) +
+  theme(axis.text.x = element_blank(),axis.ticks.x = element_blank()) +
+  labs(title="Dispersion of Wealth Index across relationship structures")
+
+characteristics[[5]] <- ggplot(tanzania_1) +
+  geom_density(mapping=aes(x=wealth_ind,fill=hh_struct),alpha=0.4) +
+  labs(title="Distribution of Wealth Index (cts)",
+       subtitle="by relationship structure") # no adults only has 2 observations
+
+
+wealth_dispersion_cat <- list(location,facilities,characteristics)
+rm(location,facilities,characteristics)
+```
+
+#### Continuous Predictors - Aggregated and Non-Aggregated
+```{r,warning=F}
+# relationship between wealth index and continuous predictors
+### non-aggregated
+wealth_dispersion_cts <- list()
+wealth_dispersion_cts[[1]] <- ggplot(tanzania_1) +
+  geom_point(mapping=aes(x=num_members,y=wealth_ind,color=factor(bank))) +
+  scale_color_discrete(labels=c("No","Yes")) +
+  labs(y="Wealth Index",x="Numer of Members",color="Has Bank Account")
+
+wealth_dispersion_cts[[2]] <- ggplot(regional_summary) +
+  geom_point(mapping=aes(x=mean_members,y=mean_wealth)) +
+  theme(legend.position="none") +
+  labs(title="Avg Members vs avg wealth index", subtitle="grouped by region",
+       x="Avg members per house in region",y="Avg wealth index in region")
+
+wealth_dispersion_cts[[3]] <- ggplot(tanzania_1) +
+  geom_point(mapping=aes(x=dep_ratio,y=wealth_ind,color=factor(bank)),size=0.5) +
+  theme(legend.position="none") +
+  labs(title="Dependency ratio vs wealth index", subtitle="blue: has bank account")
+
+wealth_dispersion_cts[[4]] <- ggplot(regional_summary) +
+  geom_point(mapping=aes(x=mean_dep_ratio,y=mean_wealth)) +
+  theme(legend.position="none") +
+  labs(title="Dependency ratio vs wealth index", subtitle="grouped by region",
+       x="Avg dependency ratio in region",y="Avg wealth index in region")
+
+wealth_dispersion_cts[[5]] <- ggplot(regional_summary) +
+  geom_point(mapping=aes(x=mean_dep_ratio2,y=mean_wealth)) +
+  theme(legend.position="none") +
+  labs(title="Dependency ratio (fixed?) vs wealth index", subtitle="grouped by region",
+       x="Avg dependency ratio in region",y="Avg wealth index in region")
+
+wealth_dispersion_cts[[6]] <- ggplot(tanzania_1) + # confetti
+  geom_point(mapping=aes(x=hh_age,y=wealth_ind,color=region),size=0.2) +
+  labs(title="Number of members vs wealth index", subtitle="colored by region")
+
+### aggregated by region or govt
+# pairs plots, cannot be saved into list
+panel.smaller_points <- function(x, y, ...) {points(x, y, cex = 0.5, ...)}
+pairs(tanzania_1[,c(3,4,13,18)],
+      lower.panel = panel.smaller_points, 
+      upper.panel = panel.smaller_points,)
+pairs(regional_summary[,c(2,4:7)]) # no relationships with outcome variable aside from dep_ratio
+pairs(govt_summary[,c(2,4:7)]) # not really any relationship, small "sample" anyway
+rm(regional_summary,govt_summary,panel.smaller_points)
+```
+
+#### Exploration
+```{r,warning=F}
+all_ggs <- list(univariate,wealth_dispersion_cat,wealth_dispersion_cts)
+rm(univariate,wealth_dispersion_cat,wealth_dispersion_cts)
+
+all_ggs
+# clear discrepancies in wealth across administrative/government regions, 
+#   urban/rural, possession of a bank account, educational attainment of 
+#   household head, dependency ratio
+# no clear discrepanices between different household relationship structures, 
+#   sex or age of household head, number of members in household
+
+rm(all_ggs)
+```
+
+#### With Sampling Weights Applied
+```{r}
+### location
+# administrative regions
+ggboxweight2d_svy(DHSdesign,wealth_ind,region) +
+  aes(fill=region) + labs(y="Wealth Index") +theme(axis.text.x=element_blank(),
+                                                     axis.ticks.x=element_blank()) 
+# urban/rural
+ggboxweight2d_svy(DHSdesign,wealth_ind,residence) + # not what I intended but cool
+  aes(fill=region) + labs(y="Wealth Index") + theme(legend.position="none")
+ggboxweight2d_svy(DHSdesign,wealth_ind,residence) +
+  aes(fill=residence) + labs(y="Wealth Index") + theme(legend.position="none")
+# government region
+ggboxweight2d_svy(DHSdesign,wealth_ind,govt) +
+  aes(fill=govt) + labs(y="Wealth Index") + theme(legend.position="none")
+gghistweight_svy(DHSdesign,wealth_ind,binwidth = 5000) +
+  aes(fill=govt) + labs(x="Wealth Index",fill="Government Region") 
+ggboxweight2d_svy(DHSdesign,wealth_ind,govt) + # cool additional
+  aes(fill=factor(hh_sex)) + labs(y="Wealth Index",x="",fill="Sex") + scale_fill_discrete(labels=c("Male","Female"))
+ggboxweight2d_svy(DHSdesign,wealth_ind,govt) + # cool additional
+  aes(fill=hh_educ) + labs(y="Wealth Index",x="",fill="Highest Education")
+gghistweight2d_svy(DHSdesign,wealth_ind,govt) + # cool additional
+  aes(fill=hh_educ) + labs(x="Wealth Index",fill="Highest Education")
+ggboxweight2d_svy(DHSdesign,wealth_ind,govt) + # cool additional
+  aes(fill=factor(bank)) + labs(y="Wealth Index",x="",fill="Has bank account") + scale_fill_discrete(labels=c("No","Yes"))
+
+### facilities
+# water source
+ggboxweight2d_svy(DHSdesign,wealth_ind,water) +
+  aes(fill=water) + labs(y="Wealth Index",x="") + theme(axis.text.x=element_blank(),
+                                                        axis.ticks.x=element_blank())
+ggboxweight2d_svy(DHSdesign,wealth_ind,water_improved) +
+  aes(fill=water_improved) + labs(y="Wealth Index",x="Water Source Quality") + theme(legend.position="none")
+gghistweight2d_svy(DHSdesign,wealth_ind,water_improved) + 
+  aes(fill=water_improved) + labs(x="Wealth Index") + theme(legend.position="none")
+
+# toilet facility
+ggboxweight2d_svy(DHSdesign,wealth_ind,toilet) +
+  aes(fill=toilet) + labs(y="Wealth Index",x="") + theme(axis.text.x=element_blank(),
+                                                         axis.ticks.x=element_blank())
+ggboxweight2d_svy(DHSdesign,wealth_ind,toilet_improved) +
+  aes(fill=toilet_improved) + labs(y="Wealth Index",x="Toilet Facility Quality") + theme(legend.position="none")
+gghistweight2d_svy(DHSdesign,wealth_ind,toilet_improved) + 
+  aes(fill=toilet_improved) + labs(x="Wealth Index") + theme(legend.position="none")
+
+# flooring
+ggboxweight2d_svy(DHSdesign,wealth_ind,floor) +
+  aes(fill=floor) + labs(y="Wealth Index",x="") + theme(axis.text.x=element_blank(),
+                                                     axis.ticks.x=element_blank())
+# cooking
+ggboxweight2d_svy(DHSdesign,wealth_ind,cooking) +
+  aes(fill=cooking) + labs(y="Wealth Index",x="") + theme(axis.text.x=element_blank(),
+                                                     axis.ticks.x=element_blank())
+
+# bank account, electricity
+ggboxweight2d_svy(DHSdesign,wealth_ind,factor(bank)) +
+  aes(fill=factor(bank)) + labs(y="Wealth Index",x="Bank") + theme(legend.position="none")
+ggboxweight2d_svy(DHSdesign,wealth_ind,factor(electric)) +
+  aes(fill=factor(electric)) + labs(y="Wealth Index",x="Electricity") + theme(legend.position="none")
+
+### characteristics
+# gender
+ggboxweight2d_svy(DHSdesign,wealth_ind,factor(hh_sex)) +
+  aes(fill=factor(hh_sex)) + labs(y="Wealth Index",fill="Sex",x="") + scale_fill_discrete(labels=c("Male","Female"))
+gghistweight2d_svy(DHSdesign,wealth_ind,factor(hh_sex)) + 
+  aes(fill=factor(hh_sex)) + labs(x="Wealth Index",fill="Sex") + scale_fill_discrete(labels=c("Male","Female"))
+# household structure
+ggboxweight2d_svy(DHSdesign,wealth_ind,hh_struct) +
+  aes(fill=factor(hh_struct)) + labs(y="Wealth Index",fill="Household Structure")
+# education level
+ggboxweight2d_svy(DHSdesign,wealth_ind,hh_educ) +
+  aes(fill=hh_educ) + labs(fill="Highest Education",x='') + theme(axis.text.x=element_blank(),
+                                                             axis.ticks.x=element_blank()) 
+gghistweight_svy(DHSdesign,wealth_ind,binwidth = 5000) +
+  aes(fill=hh_educ) + labs(x="Wealth Index") + theme(legend.position="none")
+ggboxweight2d_svy(DHSdesign,wealth_ind,hh_educ) +
+  aes(fill=factor(hh_sex)) + labs(y="Wealth Index",x="Education Level",fill="Sex") + 
+  scale_fill_discrete(labels=c("Male","Female")) # I like this one
+
+# pretty much all the same conclusions overall
+```
+
+
+## Modeling
+Region and place of residence are *fixed* effects - all are included in the data
+### Variable Transformations
+```{r,echo=F}
+# mean center num_members, age of household head at 0
+tanzania_1$num_members <- tanzania_1$num_members - mean(tanzania_1$num_members)
+tanzania_1$hh_age <- tanzania_1$hh_age - mean(tanzania_1$hh_age)
+
+# scale wealth in 100,000s
+tanzania_1$wealth_ind <- tanzania_1$wealth_ind /1e5
+
+### CLUSTER = ea, REGIONID = region, URBAN = residence, ZANZIBAR = govt
+### For 'education': none/early is the reference
+### For 'region': dodoma is the reference
+### For 'govt': mainland urban is the reference 
+### For 'residence': urban is the reference
+### For 'hh_sex': males are the reference
+### --> so, intercept interpretations are for household with none/early 
+#       education male as household head, located in dodoma or mainland urban or 
+#       urban (depending upon which fixed effect used), with average number of 
+#       members and no dependents (dep_ratio=0)
+### insights are assumed to be the same across models unless *explicitly stated*
+```
+
+### Fitting Models
+Variable selection ideas: Lasso, step-wise regression, random forest, VIF
+```{r,echo=F}
+## Model 1: FE for Region + Bank
+mod1 <- lmer(wealth_ind ~
+    factor(bank) + factor(hh_sex) + num_members + dep_ratio + factor(hh_educ)
+    + factor(region) + (1 | ea), # random intercepts at household level
+    data = tanzania_1,
+    #weights = hh_weight,
+    REML = T)
+summary(mod1) # random intercepts seems logical - model deviations in wealth within EA, 
+# overall intercept negative, significant
+# bank EXTREMELY significant, increases wealth index
+# sex of household head very insignificant (negative estimate though)
+# household size very significant, positive estimate (higher increases wealth (?))
+# dependency ratio negative and significant, makes sense (more dependents, less wealth)
+# all levels of education significant, the higher the education the greater the effect on wealth
+# some regions more significant as predictors than others: arusha, kilimanjaro, dar es salaam (!), 
+#   kusini unguja, mjini magharibi (!) significantly wealthier. lindi, mtwara significantly poorer.
+#   several regions have virtually no effect - ruvuma, mara, geita. these regions may have a mix
+#   of urban/rural characteristics, small sample sizes, etc (see cross-tabs). they could also just
+#   be very similar to the reference region dodoma
+
+mod1b <- lmer(wealth_ind ~
+    factor(bank) + factor(hh_sex) + num_members + dep_ratio2 + factor(hh_educ)
+    + factor(region) + (1 | ea), # random intercepts at household level
+    data = tanzania_1,
+    #weights = hh_weight,
+    REML = T)
+
+## Model 2: FE for Tanzania + Bank
+mod2 <- lmer(wealth_ind ~
+    factor(bank) + factor(hh_sex) + num_members + dep_ratio + factor(hh_educ)
+    + factor(govt) + (1 | ea), # random intercepts at household level
+    data = tanzania_1,
+    #weights = hh_weight,
+    REML = T)
+summary(mod2)
+# intercept is positive now, and even more significant...
+# *all* government regions are statistically significant, all decrease wealth
+#   index compared to mainland urban (the baseline), pemba reduces the most, 
+#   mainland rural the smallest reduction
+
+mod2b <- lmer(wealth_ind ~
+    factor(bank) + factor(hh_sex) + num_members + dep_ratio2 + factor(hh_educ)
+    + factor(govt) + (1 | ea), # random intercepts at household level
+    data = tanzania_1,
+    #weights = hh_weight,
+    REML = T)
+
+
+## Model 3: FE for Zanzibar, RE for bank
+mod3 <- lmer(wealth_ind ~
+    factor(bank) + factor(hh_sex) + num_members + factor(hh_educ) + residence
+    + factor(region) + (1 + factor(bank) | ea), # random intercepts at household level
+  data = tanzania_1,
+  #weights = hh_weight,
+  REML = T)
+summary(mod3)
+# positive intercept estimate, less significant than model 2
+# household sex now significant at 0.1, being female decreases wealth
+# rural residences have *much* lower wealth, extremely signifcant and large 
+#   negative parameter estimate
+# arusha, kilimanjaro (!), dar es salaam (!), kusini unguja, mjini magharibi (!!!) significantly
+#   wealthier; lindi, mtwara, tabora, rukwa, kigoma, manyara, simiyu significantly poorer; kagera,
+#   mara, geita must be similar to dodoma
+
+# Model 4: FE for governmental region, RE for education of household head
+mod4 <- lmer(wealth_ind ~
+    factor(bank) + factor(hh_sex) + num_members + factor(hh_educ) + factor(govt) + 
+      (1 + factor(hh_educ) | ea), # random intercepts at household level
+  data = tanzania_1,
+  #weights = hh_weight,
+  REML = T)
+summary(mod4) # very small variance estimates on these - effect of education likely the same across EAs
+
+# Model 5: FE for governmental region, RE for sex of household head
+mod5 <- lmer(wealth_ind ~
+    factor(bank) + factor(hh_sex) + num_members + factor(hh_educ) + factor(govt) + 
+      (1 + factor(hh_sex) | ea), # random intercepts at household level
+  data = tanzania_1,
+  #weights = hh_weight,
+  REML = T)
+summary(mod5) # small variance, effect of gender the same across regions
+
+# Model 6: FE for governmental region, RE for number of members
+mod6 <- lmer(wealth_ind ~
+    factor(bank) + factor(hh_sex) + num_members + factor(hh_educ) + factor(govt) + 
+      (1 + num_members | ea), # random intercepts at household level
+  data = tanzania_1,
+  #weights = hh_weight,
+  REML = T)
+summary(mod6) # INCREDIBLY small variance, effect of household size same across regions
+
+rm(mod1,mod1b,mod2,mod2b,mod3,mod4,mod5,mod6)
+```
+
+### Diagnostics
+```{r}
+# Show outputs
+stargazer(mod1, mod2, mod3)
+
+data.frame(FE_Region=rbind(AIC=AIC(mod1),BIC=BIC(mod1),
+                           ResidVar=mod1@sigma^2),
+           FE_Region2=rbind(AIC=AIC(mod1b),BIC=BIC(mod1b),
+                            ResidVar=mod1b@sigma^2),
+           FE_Govt=rbind(AIC=AIC(mod2),BIC=BIC(mod2),
+                         ResidVar=mod2@sigma^2),
+           FE_Govt2=rbind(AIC=AIC(mod2b),BIC=BIC(mod2b),
+                          ResidVar=mod2b@sigma^2),
+           FE_Govt_RE_Bank=rbind(AIC=AIC(mod3),BIC=BIC(mod3),
+                                 ResidVar=mod3@sigma^2))
+# they're all very similar so far, model 2b with fixed effects for government region
+# and dependency ratio 2 has the lowest AIC and BIC, highest residual variance but
+# they are all extremely comparable with this metric. Lower AIC and BIC is to be
+# expected for mod2 and mod2b because they are estimating far fewer parameters
+# ***CRITERIA INCREASED A LOT WHEN SPECIFYING WEIGHTS
+
+AIC(mod4) # AIC is basically the same as the other models (which makes sense because of small variances)
+AIC(mod5) # similar again, same explanation as above
+AIC(mod6) # similar again, same explanation as above
+
+# residual plots
+par(mfrow=c(3,2))
+qqnorm(resid(mod1),main="Model 1 Residuals")
+qqline(resid(mod1)) 
+plot(resid(mod1),fitted(mod1))
+qqnorm(resid(mod2),main="Model 2 Residuals")
+qqline(resid(mod2))
+plot(resid(mod2),fitted(mod2))
+qqnorm(resid(mod3),main="Model 3 Residuals")
+qqline(resid(mod3))
+plot(resid(mod3),fitted(mod3))
+
+# check normality of random coefficients
+par(mfrow=c(2,1))
+qqnorm(ranef(model1)$HHIDPN[,1],main='Model1 Ints') # intercepts
+qqline(ranef(model1)$HHIDPN[,1])
+qqnorm(ranef(model2)$HHIDPN[,1],main='Model2 Ints')
+qqline(ranef(model2)$HHIDPN[,1])
+qqnorm(ranef(model3)$HHIDPN[,1],main='Model3 Ints')
+qqline(ranef(model3)$HHIDPN[,1])
+```
+
+### EXTRA: EDA Based on Model Results
+```{r}
+# checking intuition that mara and geita are similar to dodoma based on mod1 and mod3 results
+# they are all rural, which makes this fairly obvious
+similar_regions <- subset(tanzania_1,tanzania_1$region %in% c("dodoma","geita","mara"))
+similar_regions$region <- droplevels(similar_regions$region)
+
+xtabs(~wealth_ind_q+region,data=similar_regions) # dodoma definitely poorer than the others...
+xtabs(~hh_sex+region,data=similar_regions) # similar ratio of men to women
+xtabs(~hh_educ+region,data=similar_regions) # fairly comparable education levels
+
+similar_regions %>% # compute unweighted summary statistics
+  group_by(region) %>%
+  dplyr::summarize(
+    mean_wealth = mean(wealth_ind),
+    std_wealth = sd(wealth_ind),
+    mean_members=mean(num_members),
+    mean_head_age=mean(hh_age),
+    mean_dep_ratio=mean(dep_ratio),
+    mean_dep_ratio2=mean(dep_ratio2,na.rm=T)) %>% 
+  arrange(desc(mean_wealth)) # dodoma with lower dep_ratio seems to be the main discrepancy
+
+similar_regions %>% # compute weighted summary statistics
+  group_by(region) %>%
+  dplyr::summarize(
+    mean_wealth = weighted.mean(wealth_ind,hh_weight),
+    std_wealth = wtd.var(wealth_ind,hh_weight) %>% sqrt(),
+    mean_members=weighted.mean(num_members,hh_weight),
+    mean_head_age=weighted.mean(hh_age,hh_weight),
+    mean_dep_ratio=weighted.mean(dep_ratio),
+    mean_dep_ratio2=weighted.mean(dep_ratio2,na.rm=T)) %>% 
+  arrange(desc(mean_wealth)) # dodoma has less members and (therefore?) lower dep_ratio
+
+plot_grid(ggplot(similar_regions) + # very similar distributions of wealth
+            geom_boxplot(mapping=aes(y=wealth_ind,group=region,fill=region)) +
+            theme(axis.text.x = element_blank(),axis.ticks.x = element_blank(),
+                  legend.position='none') +
+            labs(title="Dispersion of Wealth Index across regions",y="Wealth Index"),
+          ggplot(similar_regions) + 
+            geom_density(mapping=aes(x=wealth_ind,group=region,fill=region),alpha=0.4) +
+            labs(title="Dispersion of Wealth Index across regions",y="Wealth Index"))
+
+rm(similar_regions)
+```
+
