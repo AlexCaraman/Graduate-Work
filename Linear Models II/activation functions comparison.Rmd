@@ -1,0 +1,200 @@
+---
+title: "activation function comparisons"
+author: "Alex Caramanico"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+CIFAR100 dataset accuracy measures
+```{r}
+library(ggplot2)
+library(ggrepel)     
+model <- c('MobileNet','VGG16','GoogleNet','ResNet50','SENet18','DenseNet121')
+sigtimes <- c(33.25,49.26,295.9,216.05,73.23,252.4)
+sigacc <- c(61.88,37.75,70.31,46.78,66.17,68.31)
+all_summary <- data.frame(models,sigtimes,sigacc)
+all_summary
+ggplot(data=all_summary,mapping = aes(x=sigtimes,y=sigacc,color=models)) + geom_point()
+```
+
+```{r}
+activations <- c('Sigmoid','Tanh','Elliott','ReLU','LReLU','PReLU','ELU',
+                 'SELU','GELU','CELU','Softplus','Swish','ABReLU',
+                 'LiSHT','SRS','Mish','PAU','PDELU')
+n = 5
+mobileacc <- c(61.88,53.1,60.7,61.33,61.13,59.86,
+               61.97,59.62,61.2,61.9,62.59,59.4,
+               56.21,54.09,54.93,61.81,59.81,61.35)
+mobiletime <- c(33.25,33.3,49.86,31.36,31.8,44.6,
+                31.08,29.66,29.71,29.6,29.73,43.21,
+                38.85,37.01,66.63,40.31,41.98,323.63)/n
+mobilenet <- data.frame(mobileacc,mobiletime)
+colnames(mobilenet) <- c('Accuracy', 'TrainingTime')
+
+vggacc <- c(37.75,58.43,33.2,67.47,65.72,65.26,
+            51.35,64.55,67.25,55.78,67.7,66.05,
+            66.95,58.87,58.22,68.13,64.14,67.92)
+vggtime <- c(49.26,49.91,59.21,47.31,49.05,49.01,
+             47.63,47.51,47.36,46.78,47.1,55.61,
+             53.81,54.16,71.6,54.38,54.16,241.91)/n
+vgg16 <- data.frame(vggacc,vggtime)
+colnames(vgg16) <- c('Accuracy', 'TrainingTime')
+
+googleacc <- c(70.31,67.66,64.85,74.05,63.79,69.57,
+               72.57,71.47,74.27,72.87,73.08,71.56,
+               71.83,66.66,70.39,73.76,70.48,74.48)
+googletime <- c(295.9,298.03,413.91,295.16,301.5,342.3,
+                297.61,294.95,295.88,300.73,298.91,378.63,
+                343.98,340,523.15,359.8,354.36,2062)/n
+googlenet <- data.frame(googleacc,googletime)
+colnames(googlenet) <- c('Accuracy', 'TrainingTime')
+
+resacc <- c(46.78,64.32,49.88,71.96,72.77,71.08,
+             71.41,69.94,71.58,70.95,71.99,71.12,
+             71.96,65.28,67.11,71.89,68.59,72.11)
+restime <- c(216.05,213.05,338.81,212.5,213,235.95,
+             216.47,213.47,212.53,211.66,212.05,298.63,
+             267.03,265.95,455.58,286.75,252.51,2208.75)/n
+resnet50 <- data.frame(resacc,restime)
+colnames(resnet50) <- c('Accuracy', 'TrainingTime')
+
+SEacc <- c(66.17,60.13,66.3,70.45,70.58,69.77,
+            71.27,55.01,71.14,63.43,71.16,68.42,
+            70.47,66.01,36.95,70.8,68.29,70.81)
+SEtime <- c(73.23,73.3,101.63,75.55,78.63,87.08,
+            73.41,73.45,73.53,74.08,74.03,92.25,
+            85.5,83.98,125.55,88.88,85.61,512.66)/n
+senet18 <- data.frame(SEacc,SEtime)
+colnames(senet18) <- c('Accuracy', 'TrainingTime')
+
+denseacc <- c(68.31,69.53,69.58,72.99,73.33,68.23,
+               72.06,70.15,73.31,72.68,72.54,71.34,
+               73.79,65.61,64.52,73.49,67.83,73.71)
+densetime <- c(252.4,249.4,466.91,255.1,254.15,295.78,
+               248.65,249.28,251.43,258.18,252.13,401.23,
+               342.88,338.25,670.45,370.45,339.95,3023)/n
+densenet121 <- data.frame(denseacc,densetime)
+colnames(densenet121) <- c('Accuracy', 'TrainingTime')
+```
+
+```{r}
+models <- rep(model,each=18)
+all_acc_time <- rbind(mobilenet,vgg16,googlenet,resnet50,senet18,densenet121)
+activation <- rep(activations,6)
+main_df <- cbind(activation,models,all_acc_time)
+ggplot(data=main_df, mapping= aes(x=log(TrainingTime), y=Accuracy, color=models))+geom_point()+ggtitle('Training Time vs Accuracy by Model')
+main_df
+ggplot(data=main_df, mapping= aes(x=log(TrainingTime), y=Accuracy, color=activation))+geom_point()+ggtitle('Training Time vs Accuracy by AF')
+# up and left is good
+```
+```{r}
+accuracy_order <- main_df[order(main_df[,3],decreasing=TRUE),]
+accuracy_order
+ggplot(data=accuracy_order[1:20,],
+       mapping=aes(x=log(TrainingTime),y=Accuracy,color=models,label=activation)) + 
+  geom_point() + 
+  ggtitle('Top 20 Most Accurate Model-AF Performances') + 
+  xlab('Log Time') +
+  ylab('Accuracy') +
+  theme(legend.position = "none") + 
+  geom_text_repel(nudge_x = 0.01, direction = "y", force = 0.8, max.iter = 100000) 
+```
+```{r}
+speed_order <- main_df[order(main_df[,4],decreasing=FALSE),]
+speed_order
+ggplot(data=speed_order[1:20,],
+       mapping=aes(x=log(TrainingTime),y=Accuracy,color=models,label=activation)) + 
+  geom_point() + 
+  ggtitle('Top 20 Fastest Model-AF Performances') + 
+  xlab('Log Time') +
+  ylab('Accuracy') +
+  theme(legend.position = "none") + 
+  geom_text_repel(nudge_x = 0.03, direction = "y", force = 0.4, max.iter = 100000) 
+```
+
+```{r}
+activation_summary <- list()
+for (i in 1:length(activations)){
+  mean_accuracy <- round(mean(subset(main_df,activation==activations[i])$`Accuracy`),3)
+  mean_time <- round(mean(subset(main_df,activation==activations[i])$`TrainingTime`),3)
+  activation_summary[[i]] <- c(mean_accuracy,mean_time)
+}
+df <- do.call("rbind",activation_summary)
+colnames(df) <- c('AvgAccuracy', 'AvgTrainingTime')
+summary_stats <- as.data.frame(cbind(activations,df))
+summary_stats
+ggplot(data=summary_stats,mapping=aes(x=log(as.double(AvgTrainingTime)),
+                                      y=as.double(AvgAccuracy),
+                                      color=activations,
+                                      label=activations))+ 
+  geom_point() + 
+  ggtitle('Average Performance of Each Activation Function') +
+  xlab('Log Average Time')+
+  ylab('Average Accuracy')+
+  theme(legend.position = "none") + 
+  geom_text_repel(nudge_x = 0.01, direction = "y", force = 0.8, max.iter = 100000) 
+```
+```{r}
+summary_stats2 <- summary_stats[-18,]
+ggplot(data=summary_stats2,mapping=aes(x=log(as.double(AvgTrainingTime)),
+                                      y=as.double(AvgAccuracy),
+                                      color=activations,
+                                      label=activations))+ 
+  geom_point() + 
+  ggtitle('Average Performance of Each Activation Function') +
+  xlab('Log Average Time')+
+  ylab('Average Accuracy')+
+  theme(legend.position = "none") + 
+  geom_text_repel(nudge_x = 0.01, direction = "y", force = 0.8, max.iter = 100000) 
+```
+
+```{r}
+bleuscore <- c(14.59,20.93,14.49,18.88,18.89,20.04,
+               19.4,20.85,18.75,18.71,16.78,19.51,
+               17.55,20.39,20.66,19.56,20.11,19.07)
+bleustd <- c(0.47,0.91,0.96,0.86,0.82,0.98,
+             1.33,0.64,1.83,0.55,0.84,0.97,
+             0.63,0.93,0.78,1.15,1.24,0.95)
+avgcer <- c(0.53,0.26,0.4,0.24,0.24,0.24,
+            0.25,0.3,0.24,0.25,0.3,0.24,
+            0.25,0.29,0.28,0.24,0.24,0.25)
+avgwer <- c(1.19,0.68,0.93,0.66,0.66,0.65,
+            0.67,0.69,0.65,0.67,0.76,0.65,
+            0.68,0.74,0.72,0.65,0.65,0.67)
+translation_data <- data.frame(activations,bleuscore,bleustd,avgcer,avgwer)
+```
+
+```{r}
+translation_data
+cor(translation_data[,4],translation_data[,5])
+summary(lm(translation_data[,4]~translation_data[,5],))
+plot(translation_data[,4],translation_data[,5],xlab='CER',ylab='WER')
+```
+
+
+```{r}
+ggplot(data=translation_data,
+       mapping=aes(x=avgwer,y=bleuscore,color=activations,label=activations)) +
+  geom_point() + 
+  ggtitle('Translation vs Speech Rec Performance')+
+  xlab('Average Word Error Rate')+
+  ylab('Bleu Score')+
+  theme(legend.position = "none") + 
+  geom_text_repel(nudge_x = 0.02, direction = "y", 
+                  force = 0.1, max.iter = 100000,max.overlaps=20) # + 
+  # geom_errorbar(aes(ymin=-bleustd,ymax=bleustd))
+```
+```{r}
+ggplot(data=translation_data,
+       mapping=aes(x=avgcer,y=bleuscore,color=activations,label=activations)) +
+  geom_point() + 
+  ggtitle('Translation vs Speech Rec Performance')+
+  xlab('Average Character Error Rate')+
+  ylab('Bleu Score')+theme(legend.position = "none") + 
+  geom_text_repel(nudge_x = 0.02, direction = "y", force = 0.4, max.iter = 100000,max.overlaps=20) # + geom_errorbar(aes(ymin=-bleustd,ymax=bleustd))
+```
+
+```{r}
+# eh
+ggplot(data=translation_data,mapping=aes(x=avgwer,y=avgcer,color=activations,label=activations))  +geom_point() + ggtitle('Speech Recognition Performance')+xlab('Average Word Error Rate')+ylab('Average Character Error Rate')+theme(legend.position = "none") + geom_text_repel(nudge_y = 0.01,nudge_x = 0.001, direction = "x", force = 0.1, max.iter = 100000,max.overlaps=20) # + geom_errorbar(aes(ymin=-bleustd,ymax=bleustd))
+```
+
