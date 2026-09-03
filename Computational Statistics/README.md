@@ -1,12 +1,14 @@
 # Computational Statistics
-- HW1:
-- HW2:
-- HW3:
-- HW4:
-- HW5:
-- HW6:
-- HW7:
+- HW1: R basics
+- HW2: Matrices, Runtime, LLN
+- HW3: Basic functions, data management, ggplot
+- HW4: Root-finding (Newton-Raphson, bisection, secant, fixed point, method of moments), computational speed comparison and space searching 
+- HW5: Matrix Definiteness, Poisson MLE, Optimization (Newton-Raphson, Fisher Scoring, steepest ascent, quasi-Newton)
+- HW6: Tabu, Simulated Annealing, Genetic Algorithm, Stochastic Gradient Descent, *not all working correctly*
+- HW7: EM algorithm and variants, *not all working correctly*
 - HW8:
-- HW9:
+  - Numerical integration: Riemann, Trapezoid, Simpson’s rules, quadrature
+  - Root-finding: bisection, secant
+- HW9: Importance and rejection sampling, SIR (resampling), Bayesian
 - HW10: MCMC, Metropolis-Hastings algorithm, Gibbs sampler
 - Final Project: attempt at implementing double poisson model to predict Premier League matches. Also includes visualization function
