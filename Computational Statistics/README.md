@@ -1,0 +1,12 @@
+# Computational Statistics
+- HW1:
+- HW2:
+- HW3:
+- HW4:
+- HW5:
+- HW6:
+- HW7:
+- HW8:
+- HW9:
+- HW10: MCMC, Metropolis-Hastings algorithm, Gibbs sampler
+- Final Project: attempt at implementing double poisson model to predict Premier League matches. Also includes visualization function
