@@ -1,7 +1,7 @@
 # Multilevel Modeling and SEM
 - Final Project
-  - pdf file:
-  - Rmarkdown file: 
-- HW1:
-- HW2:
-- HW3: 
+  - pdf file: Report document examining wealth clustering in Tanzania with multilevel modeling methods. Selected and controlled for multiple covariates (sex and education of household head, members living in house, bank account access, dependency ratio). Expansive and thorough data exploration with summary plots. Modeling involved random intercepts for enumeration areas, fixed effects for regions and aforementioned covariates. Model diagnostics and interpretations provided, with future work discussed.
+  - Rmarkdown file: Code associated with project, following each part of the project.
+- HW1: Analysis of blood pressure data, involving data exploration/visualization. Basic multilevel models. Interpretations and diagnostics (residuals and model fit) provided.
+- HW2: Examined difference in trajectories of blood pressure over time between individuals using multilevel modeling. Interpretations and diagnostics (residuals and model fit) provided. Testing of various correlation structures, and parameter specifications. Implementation and interpretation of GLM (marginal logistic regression) to same research objective. 
+- HW3: Structural equation modeling on European Social Survey data. Latent versus observed and exogenous versus endogenous variables. Implementation of model using cfa() in lavaan package. Comparison of attitudes toward immigration between males and females. Examination of latent measure “trust in authority”. 
